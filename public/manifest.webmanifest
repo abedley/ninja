@@ -1,0 +1,10 @@
+{
+  "name": "Ninja",
+  "short_name": "Ninja",
+  "start_url": ".",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#a9aab3",
+  "theme_color": "#a9aab3",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

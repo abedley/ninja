@@ -1,0 +1,175 @@
+:root {
+  --letterbox: #a9aab3;
+  --ink: #111114;
+  --control-bg: rgba(17, 17, 20, 0.12);
+  --control-bg-active: rgba(17, 17, 20, 0.3);
+  --pad-bg: rgba(17, 17, 20, 0.05);
+  --pad-ring: rgba(17, 17, 20, 0.16);
+  --pad-ink: rgba(17, 17, 20, 0.3);
+  --pad-size: 76px;
+  --gap: 14px;
+  --safe-l: env(safe-area-inset-left, 0px);
+  --safe-r: env(safe-area-inset-right, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-t: env(safe-area-inset-top, 0px);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--letterbox);
+  overscroll-behavior: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+#app {
+  position: fixed;
+  inset: 0;
+  touch-action: none;
+}
+
+#game {
+  display: block;
+  position: absolute;
+  inset: 0;
+}
+
+/* Small buttons along the top edge. */
+#hud {
+  position: absolute;
+  top: calc(8px + var(--safe-t));
+  left: calc(8px + var(--safe-l));
+  display: flex;
+  gap: 8px;
+}
+
+.hud-btn {
+  width: 40px;
+  height: 40px;
+  padding: 8px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--control-bg);
+  color: var(--ink);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.hud-btn:active,
+.hud-btn[aria-pressed='true'] {
+  background: var(--control-bg-active);
+}
+
+.hud-btn svg,
+.pad svg {
+  width: 100%;
+  height: 100%;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Touch controls: purely visual, input is read from the whole screen (see input.ts). */
+#touch-controls {
+  display: none;
+  pointer-events: none;
+}
+
+body.touch #touch-controls {
+  display: block;
+}
+
+.pad {
+  position: absolute;
+  bottom: calc(var(--gap) + var(--safe-b));
+  width: var(--pad-size);
+  height: var(--pad-size);
+  padding: 20px;
+  border-radius: 50%;
+  /* Faint hints only: the pads sit over the level, and the real touch zones are whole screen halves. */
+  background: var(--pad-bg);
+  box-shadow: inset 0 0 0 1.5px var(--pad-ring);
+  color: var(--pad-ink);
+  transition: background-color 60ms;
+}
+
+.pad.active {
+  background: var(--control-bg);
+  color: rgba(17, 17, 20, 0.55);
+}
+
+#pad-left {
+  left: calc(var(--gap) + var(--safe-l));
+}
+
+#pad-right {
+  left: calc(var(--gap) * 2 + var(--pad-size) + var(--safe-l));
+}
+
+#pad-jump {
+  right: calc(var(--gap) + var(--safe-r));
+  width: calc(var(--pad-size) * 1.15);
+  height: calc(var(--pad-size) * 1.15);
+}
+
+#message {
+  position: absolute;
+  left: 50%;
+  top: calc(16px + var(--safe-t));
+  transform: translateX(-50%);
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: rgba(17, 17, 20, 0.72);
+  color: #f2f2f5;
+  font-size: 14px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+#rotate-hint {
+  display: none;
+  position: absolute;
+  inset: 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: var(--letterbox);
+  color: var(--ink);
+  font-size: 17px;
+}
+
+#rotate-hint svg {
+  width: 72px;
+  height: 72px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+@media (orientation: portrait) and (pointer: coarse) {
+  #rotate-hint {
+    display: flex;
+  }
+}
+
+@media (max-height: 420px) {
+  :root {
+    --pad-size: 64px;
+    --gap: 10px;
+  }
+}
