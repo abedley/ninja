@@ -1,4 +1,5 @@
 import { TILE_SIZE } from '../physics/tileDefs';
+import type { Point } from '../physics/simulator';
 import { TileMap } from '../physics/tileMap';
 
 /**
@@ -8,6 +9,7 @@ import { TileMap } from '../physics/tileMap';
  *
  * Legend (tile id in brackets):
  *   .  empty [0]                 #  full [1]                N  ninja spawn (empty tile)
+ *   $  gold, centred in an empty tile
  *   T R B L   half tile, solid on the Top/Right/Bottom/Left [2-5]
  *   y z       45 degree ceiling, solid top-left / top-right [6, 7]
  *   / \       45 degree floor, rising / falling to the right [8, 9]
@@ -23,10 +25,18 @@ import { TileMap } from '../physics/tileMap';
  */
 export const TILE_LEGEND = '.#TRBLyz/\\uvwxUVWXabcdefghijklmnop';
 const SPAWN_CHAR = 'N';
+const GOLD_CHAR = '$';
+/** N++ positions entities on a quarter-tile grid. */
+export const ENTITY_GRID = TILE_SIZE / 4;
 
 export interface LevelDef {
   name: string;
   rows: string[];
+  /**
+   * Extra gold at arbitrary positions, as [x, y] in N++ entity units (6 px,
+   * counted from the outer edge of the border, so a tile centre is 4n + 2).
+   */
+  gold?: [number, number][];
 }
 
 export interface Level {
@@ -34,6 +44,8 @@ export interface Level {
   map: TileMap;
   spawnX: number;
   spawnY: number;
+  /** Gold positions in world px. */
+  gold: Point[];
 }
 
 export function parseLevel(def: LevelDef): Level {
@@ -44,6 +56,7 @@ export function parseLevel(def: LevelDef): Level {
   const height = innerH + 2;
   const tiles = new Uint8Array(width * height).fill(1);
   let spawn: [number, number] | null = null;
+  const gold: Point[] = [];
 
   for (let y = 0; y < innerH; y++) {
     const row = def.rows[y];
@@ -57,6 +70,9 @@ export function parseLevel(def: LevelDef): Level {
         if (spawn) throw new Error(`Level "${def.name}" has more than one spawn`);
         spawn = [x + 1, y + 1];
         id = 0;
+      } else if (ch === GOLD_CHAR) {
+        gold.push({ x: (x + 1) * TILE_SIZE + TILE_SIZE / 2, y: (y + 1) * TILE_SIZE + TILE_SIZE / 2 });
+        id = 0;
       } else {
         id = TILE_LEGEND.indexOf(ch);
         if (id < 0) throw new Error(`Level "${def.name}" has unknown tile "${ch}" at ${x},${y}`);
@@ -66,6 +82,7 @@ export function parseLevel(def: LevelDef): Level {
   }
   if (!spawn) throw new Error(`Level "${def.name}" has no spawn ("${SPAWN_CHAR}")`);
   const [sx, sy] = spawn;
+  for (const [gx, gy] of def.gold ?? []) gold.push({ x: gx * ENTITY_GRID, y: gy * ENTITY_GRID });
 
   return {
     name: def.name,
@@ -73,5 +90,6 @@ export function parseLevel(def: LevelDef): Level {
     // Spawn in the centre of the marked tile; the ninja then settles onto the floor.
     spawnX: sx * TILE_SIZE + TILE_SIZE / 2,
     spawnY: sy * TILE_SIZE + TILE_SIZE / 2,
+    gold,
   };
 }

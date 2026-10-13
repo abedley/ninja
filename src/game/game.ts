@@ -5,6 +5,7 @@ import { AnimState, NinjaAnimator, type P, type Pose } from './animator';
 import { Debris } from './debris';
 import type { Input } from './input';
 import { poseToWorld, type Renderer } from './renderer';
+import { SPARKLE_FRAMES, type Sparkle } from './sparkles';
 
 const STEP_MS = 1000 / TICK_RATE;
 /** Don't try to catch up more than this many frames after a stall. */
@@ -25,6 +26,7 @@ export class Game {
   private jumpWasHeld = false;
   private scarf: P[] = [];
   private scarfOld: P[] = [];
+  private sparkles: Sparkle[] = [];
   // Previous-frame position for render interpolation.
   private prevX = 0;
   private prevY = 0;
@@ -59,7 +61,8 @@ export class Game {
   }
 
   private respawnAt(x: number, y: number): void {
-    this.sim = new Simulator(this.level.map, x, y);
+    this.sim = new Simulator(this.level.map, x, y, this.level.gold);
+    this.sparkles = [];
     this.animator.reset();
     this.debris = null;
     this.deadFrames = 0;
@@ -99,6 +102,7 @@ export class Game {
     const ninja = this.sim.ninja;
     const hor = this.input.hor;
     const jump = this.input.takeJump();
+    this.stepSparkles();
 
     if (ninja.state === NinjaState.Dead) {
       this.deadFrames++;
@@ -114,6 +118,7 @@ export class Game {
     this.sim.tick(hor, jump);
     this.animator.update(ninja);
     this.stepScarf();
+    for (const g of this.sim.goldThisTick) this.sparkles.push({ x: g.x, y: g.y, age: 0 });
 
     // (Re-read the state: tick() may have changed it.)
     if (this.isDead) this.explode();
@@ -159,6 +164,12 @@ export class Game {
     }
   }
 
+  private stepSparkles(): void {
+    if (!this.sparkles.length) return;
+    for (const s of this.sparkles) s.age++;
+    this.sparkles = this.sparkles.filter((s) => s.age < SPARKLE_FRAMES);
+  }
+
   private explode(): void {
     const n = this.sim.ninja;
     const a = this.animator;
@@ -179,6 +190,8 @@ export class Game {
     const y = this.prevY + (n.ypos - this.prevY) * alpha;
     const pose: Pose = this.animator.pose(this.skidAmount());
     this.renderer.draw(
+      this.sim.gold,
+      this.sparkles,
       alive ? { x, y, tilt: this.animator.tilt, facing: this.animator.facing, pose, scarf: this.scarf } : null,
       this.debris,
       this.debug ? this.debugLines() : null,
@@ -196,6 +209,7 @@ export class Game {
       `ground  ${n.airborn ? 'no' : `yes  n=(${n.floorNormalizedX.toFixed(2)}, ${n.floorNormalizedY.toFixed(2)})`}`,
       `wall    ${n.walled ? `yes  n=${n.wallNormal.toFixed(0)}` : 'no'}`,
       `input   ${this.input.hor} ${n.jumpInput ? 'jump' : ''}`,
+      `gold    ${this.goldCollected}/${this.goldTotal}`,
     ];
     if (this.animator.state === AnimState.Run) lines.push(`run     ${this.animator.runCycle}`);
     return lines;
@@ -203,6 +217,14 @@ export class Game {
 
   get isDead(): boolean {
     return this.sim.ninja.state === NinjaState.Dead;
+  }
+
+  get goldCollected(): number {
+    return this.sim.goldCollected;
+  }
+
+  get goldTotal(): number {
+    return this.sim.gold.length;
   }
 
   get levelName(): string {

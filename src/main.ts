@@ -12,6 +12,8 @@ const message = document.getElementById('message')!;
 const btnRestart = document.getElementById('btn-restart')!;
 const btnDebug = document.getElementById('btn-debug')!;
 const btnFullscreen = document.getElementById('btn-fullscreen')!;
+const goldCounter = document.getElementById('gold-counter')!;
+const goldCount = document.getElementById('gold-count')!;
 
 const renderer = new Renderer(canvas);
 const input = new Input(app);
@@ -80,9 +82,25 @@ document.addEventListener('visibilitychange', () => {
   else game.start();
 });
 
-// Reflect touch state on the on-screen pads, and show the retry prompt.
+// Reflect touch state on the on-screen pads, show the retry prompt and count gold.
 let lastUi = '';
+let lastGold = -1;
 function updateUi(): void {
+  const gold = game.goldCollected;
+  if (gold !== lastGold) {
+    const total = game.goldTotal;
+    goldCount.textContent = `${gold}/${total}`;
+    goldCounter.hidden = total === 0;
+    goldCounter.classList.toggle('complete', gold === total && total > 0);
+    // Restart the bump animation on each pickup (not on a reset to 0).
+    goldCounter.classList.remove('bump');
+    if (gold > lastGold && lastGold >= 0) {
+      void goldCounter.offsetWidth;
+      goldCounter.classList.add('bump');
+    }
+    lastGold = gold;
+  }
+
   const dir = input.touchDir;
   const ui = `${dir}|${input.touchJump}|${game.isDead}|${input.usingTouch}`;
   if (ui !== lastUi) {

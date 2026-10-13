@@ -4,7 +4,7 @@ A mobile-first clone of Metanet Software's *N: The Way of the Ninja*, focused on
 reproducing its physics exactly.
 
 So far: running, skidding, jumping (with variable height), slope jumps, wall
-sliding, wall jumps, every N/N++ tile shape, and fall-impact death.
+sliding, wall jumps, every N/N++ tile shape, fall-impact death, and gold.
 
 ## Running it
 
@@ -42,10 +42,12 @@ reverse-engineered N++ simulator, used to validate real N++ replays. N++ uses N'
 model, run at 60 fps instead of 40 (its per-frame multipliers are N's raised to
 the power 2/3).
 
-`tests/golden.test.ts` replays about 27,000 frames of scripted and random input
+`tests/golden.test.ts` replays about 36,000 frames of scripted and random input
 through both simulators. Our ninja must match **bit for bit on every frame**
 (position, speed and state). The traces cover running, jump buffering, wall
 slides, both kinds of wall jump, slope jumps, every tile type and impact deaths.
+Gold must be collected on exactly the same frames; some runs fill the level with
+gold on every point of N++'s 6 px entity grid to test the pickup boundary.
 
 The reference is run with one change: Python's `x**2` is evaluated as `x*x`.
 Python's `**` calls the C library's `pow()`, which on glibc differs from `x*x` in
@@ -61,6 +63,17 @@ in `src/physics/`, run `npm test`.
 git clone https://github.com/SimonV42/nclone /tmp/nclone
 python3 -I tools/golden/gen_golden.py /tmp/nclone tests/fixtures/golden.json
 ```
+
+## Levels
+
+Levels live in `src/level/levels.json` as ASCII grids; the tile legend is in
+`src/level/level.ts`. `N` is the spawn and `$` puts a piece of gold in the
+middle of a tile. For finer placement, a level can also list
+`"gold": [[x, y], ...]` in N++'s 6 px entity units, counted from the outer edge
+of the border (tile centres are at `4n + 2`).
+
+Gold works as in N++: a circle of radius 6, collected when it overlaps the
+ninja's circle (radius 10) during the collision step. It doesn't affect movement.
 
 ## Layout
 
@@ -78,7 +91,7 @@ which keeps replays and tests deterministic.
 
 ## Not done yet
 
-- Entities: gold, exit door and switch, mines, drones, thwumps, launch pads, bounce blocks, one-way platforms, doors
+- Entities: exit door and switch, mines, drones, thwumps, launch pads, bounce blocks, one-way platforms, doors
 - Ragdoll death (the current one is a cosmetic stand-in)
-- The time bar, level/episode flow and a level editor
+- The time bar (in N, each piece of gold adds time), level/episode flow and a level editor
 - Real ninja animation data (current poses are procedural)

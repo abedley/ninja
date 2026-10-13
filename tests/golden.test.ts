@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import golden from './fixtures/golden.json';
-import { parseLevel } from '../src/level/level';
-import { Simulator } from '../src/physics/simulator';
+import { ENTITY_GRID, parseLevel } from '../src/level/level';
+import { Simulator, type Point } from '../src/physics/simulator';
 import type { HorInput, Ninja } from '../src/physics/ninja';
 import { TILE_SEGMENT_CIRCULAR, TILE_SEGMENT_DIAG, TILE_SEGMENT_ORTHO } from '../src/physics/tileDefs';
 
@@ -27,6 +27,13 @@ function stateHash(n: Ninja): string {
     h = Math.imul(h, 0x01000193) >>> 0;
   }
   return h.toString(16).padStart(8, '0');
+}
+
+/** Gold on every point of N++'s 6 px entity grid inside the border (matches gold_field() in gen_golden.py). */
+function goldField(): Point[] {
+  const out: Point[] = [];
+  for (let y = 4; y < 97; y++) for (let x = 4; x < 173; x++) out.push({ x: x * ENTITY_GRID, y: y * ENTITY_GRID });
+  return out;
 }
 
 function decodeInput(ch: string): [HorInput, boolean] {
@@ -58,7 +65,11 @@ describe('frame-exact physics vs nclone', () => {
   for (const scenario of golden.scenarios) {
     it(scenario.name, () => {
       const level = parseLevel({ name: scenario.name, rows: scenario.rows });
-      const sim = new Simulator(level.map, level.spawnX, level.spawnY);
+      const gold = scenario.goldField ? [...level.gold, ...goldField()] : level.gold;
+      const sim = new Simulator(level.map, level.spawnX, level.spawnY, gold);
+      // Frame -> total gold collected, at each frame where the total changes.
+      const goldAt = new Map(scenario.gold.map(([frame, total]) => [frame, total]));
+      let goldTotal = 0;
       const checkpoints = new Map(scenario.checkpoints.map((c) => [c[0], c]));
       for (let i = 0; i < scenario.inputs.length; i++) {
         const [hor, jump] = decodeInput(scenario.inputs[i]);
@@ -72,6 +83,10 @@ describe('frame-exact physics vs nclone', () => {
             `Diverged at frame ${sim.frame}: got x=${n.xpos} y=${n.ypos} vx=${n.xspeed} vy=${n.yspeed} state=${n.state}` +
               (prev !== undefined ? `; last reference checkpoint ${JSON.stringify(checkpoints.get(prev))}` : ''),
           );
+        }
+        goldTotal = goldAt.get(sim.frame) ?? goldTotal;
+        if (sim.goldCollected !== goldTotal) {
+          throw new Error(`Gold diverged at frame ${sim.frame}: collected ${sim.goldCollected}, expected ${goldTotal}`);
         }
       }
       expect(sim.frame).toBe(scenario.inputs.length);

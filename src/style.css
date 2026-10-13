@@ -6,6 +6,9 @@
   --pad-bg: rgba(17, 17, 20, 0.05);
   --pad-ring: rgba(17, 17, 20, 0.16);
   --pad-ink: rgba(17, 17, 20, 0.3);
+  --gold: #dcaa2e;
+  --gold-light: #f6dc86;
+  --gold-dark: #a3761a;
   --pad-size: 76px;
   --gap: 14px;
   --safe-l: env(safe-area-inset-left, 0px);
@@ -79,6 +82,60 @@ body {
   stroke-width: 2.4;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+
+/* Gold collected, top right. */
+#gold-counter {
+  position: absolute;
+  top: calc(8px + var(--safe-t));
+  right: calc(8px + var(--safe-r));
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 14px 0 12px;
+  border-radius: 10px;
+  background: var(--control-bg);
+  color: var(--ink);
+  font-size: 16px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+.gold-icon {
+  width: 14px;
+  height: 14px;
+  background: var(--gold);
+  /* Same bevel as the in-game gold: lit top-left edge, dark bottom-right. */
+  box-shadow:
+    inset 2px 2px 0 var(--gold-light),
+    inset -2px -2px 0 var(--gold-dark);
+}
+
+#gold-counter[hidden] {
+  display: none;
+}
+
+#gold-counter.complete {
+  background: var(--gold);
+}
+
+#gold-counter.complete .gold-icon {
+  box-shadow:
+    inset 2px 2px 0 var(--gold-light),
+    inset -2px -2px 0 var(--gold-dark),
+    0 0 0 1.5px var(--ink);
+}
+
+#gold-counter.bump {
+  animation: gold-bump 220ms ease-out;
+}
+
+@keyframes gold-bump {
+  30% {
+    transform: scale(1.12);
+  }
 }
 
 /* Touch controls: purely visual, input is read from the whole screen (see input.ts). */

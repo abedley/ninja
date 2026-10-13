@@ -3,8 +3,9 @@
 nclone (https://github.com/SimonV42/nclone) is the community's reverse-engineered
 N++ physics, used to validate real N++ replays. This script runs scripted and
 pseudo-random inputs through it and records, for every frame, a hash of the
-ninja's exact state (position, speed, state). tests/golden.test.ts replays the
-same inputs through our engine and requires bit-identical results.
+ninja's exact state (position, speed, state), plus the frames on which gold is
+collected. tests/golden.test.ts replays the same inputs through our engine and
+requires bit-identical results.
 
 One adjustment is made to nclone when loading it: `x**2` is evaluated as `x*x`.
 Python's `**` goes through the C library's pow(), which on glibc differs from
@@ -63,28 +64,39 @@ FLAT = [
 
 def with_spawn(rows, x, y):
     rows = [r.replace('N', '.') for r in rows]
-    assert rows[y][x] == '.', (x, y, rows[y][x])
+    assert rows[y][x] in '.$', (x, y, rows[y][x])
     rows[y] = rows[y][:x] + 'N' + rows[y][x + 1:]
     return rows
 
 
-def to_map_data(rows):
-    """Build an N++ map data array (tiles + ninja spawn) from an ASCII level."""
+def gold_field():
+    """Gold on every point of N++'s 6px entity grid inside the border (must match golden.test.ts)."""
+    return [(x, y) for y in range(4, 97) for x in range(4, 173)]
+
+
+def to_map_data(rows, extra_gold=()):
+    """Build an N++ map data array (tiles, ninja spawn, gold) from an ASCII level."""
     assert len(rows) == 23 and all(len(r) == 42 for r in rows)
     data = [0] * 1235
     sx = sy = None
+    gold = []
     for y, row in enumerate(rows):
         for x, ch in enumerate(row):
             if ch == 'N':
                 sx, sy = x, y
                 tile = 0
+            elif ch == '$':
+                gold.append(((x + 1) * 4 + 2, (y + 1) * 4 + 2))
+                tile = 0
             else:
                 tile = TILE_LEGEND.index(ch)
             data[184 + x + y * 42] = tile
-    # Spawn coordinates are in 6px units; we spawn in the centre of the marked tile.
+    # Entity coordinates are in 6px units; we spawn in the centre of the marked tile.
     data[1230] = 0
     data[1231] = (sx + 1) * 4 + 2
     data[1232] = (sy + 1) * 4 + 2
+    for gx, gy in gold + list(extra_gold):
+        data += [2, gx, gy, 0, 0]
     return data
 
 
@@ -131,20 +143,23 @@ def state_hash(n):
     return '%08x' % h
 
 
-def run(Simulator, rows, inputs):
+def run(Simulator, rows, inputs, extra_gold=()):
     sim = Simulator()
-    sim.load(to_map_data(rows))
+    sim.load(to_map_data(rows, extra_gold))
     hashes = []
     checkpoints = []
+    gold = []  # [frame, total collected] whenever the total changes
     for hor, jump in inputs:
         sim.tick(hor, int(jump))
         n = sim.ninja
         hashes.append(state_hash(n))
+        if sim.gold_collected != (gold[-1][1] if gold else 0):
+            gold.append([sim.frame, sim.gold_collected])
         if sim.frame % 30 == 0 or n.state == 6:
             checkpoints.append([sim.frame, n.xpos, n.ypos, n.xspeed, n.yspeed, n.state])
         if n.state == 6:
             break
-    return hashes, checkpoints
+    return hashes, checkpoints, gold
 
 
 class SquareAsMultiply(ast.NodeTransformer):
@@ -206,6 +221,13 @@ def main():
     zoo_spawns = [(2, 20), (12, 17), (25, 17), (38, 17), (8, 9), (30, 9), (20, 5)]
     for i, (x, y) in enumerate(zoo_spawns):
         scenarios.append((f'tile zoo: random #{i}', with_spawn(TILE_ZOO, x, y), random_inputs(2000 + i, 1800)))
+    # Gold everywhere, so the exact overlap boundary gets exercised thousands of times.
+    for i, (x, y) in enumerate([(1, 21), (20, 21), (28, 21)]):
+        scenarios.append((f'gold field: playground random #{i}', with_spawn(PLAYGROUND, x, y),
+                          random_inputs(3000 + i, 1800), True))
+    for i, (x, y) in enumerate([(2, 20), (25, 17)]):
+        scenarios.append((f'gold field: tile zoo random #{i}', with_spawn(TILE_ZOO, x, y),
+                          random_inputs(4000 + i, 1800), True))
 
     fixture = {
         'source': 'nclone @ 842190b2a216579b5b5c551e0a0b4505fc3381cc',
@@ -216,16 +238,19 @@ def main():
         },
         'scenarios': [],
     }
-    for name, rows, inputs in scenarios:
-        hashes, checkpoints = run(Simulator, rows, inputs)
+    for name, rows, inputs, *field in scenarios:
+        field = bool(field and field[0])
+        hashes, checkpoints, gold = run(Simulator, rows, inputs, gold_field() if field else ())
         fixture['scenarios'].append({
             'name': name,
             'rows': rows,
+            'goldField': field,
             'inputs': encode_inputs(inputs[:len(hashes)]),
             'hashes': ''.join(hashes),
             'checkpoints': checkpoints,
+            'gold': gold,
         })
-        print(f'{name}: {len(hashes)} frames, final state {checkpoints[-1][5]}')
+        print(f'{name}: {len(hashes)} frames, final state {checkpoints[-1][5]}, gold {gold[-1][1] if gold else 0}')
 
     with open(out_path, 'w') as f:
         json.dump(fixture, f, separators=(',', ':'))

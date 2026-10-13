@@ -22,4 +22,35 @@ describe('level parser', () => {
     expect(() => parseLevel({ name: 'x', rows: ['N.?'] })).toThrow(/unknown tile/);
     expect(() => parseLevel({ name: 'x', rows: ['...'] })).toThrow(/no spawn/);
   });
+
+  it('places gold from $ tiles and from N++ entity coordinates', () => {
+    const level = parseLevel({ name: 'x', rows: ['N.$', '###'], gold: [[9, 7]] });
+    expect(level.map.tileAt(3, 1)).toBe(0);
+    expect(level.gold).toEqual([
+      { x: 3 * 24 + 12, y: 24 + 12 },
+      { x: 54, y: 42 },
+    ]);
+  });
+});
+
+describe('gold', () => {
+  it('is collected once, by running into it', () => {
+    const level = parseLevel({ name: 'x', rows: ['N.....$..', '#########'] });
+    const sim = new Simulator(level.map, level.spawnX, level.spawnY, level.gold);
+    let pickedUpOn = 0;
+    for (let i = 0; i < 120; i++) {
+      sim.tick(1, false);
+      if (sim.goldThisTick.length) pickedUpOn = sim.frame;
+    }
+    expect(sim.goldCollected).toBe(1);
+    expect(sim.gold[0].active).toBe(false);
+    expect(pickedUpOn).toBeGreaterThan(0);
+  });
+
+  it('is not collected when a tile overhead', () => {
+    const level = parseLevel({ name: 'x', rows: ['.........', '......$..', 'N........', '#########'] });
+    const sim = new Simulator(level.map, level.spawnX, level.spawnY, level.gold);
+    for (let i = 0; i < 120; i++) sim.tick(1, false);
+    expect(sim.goldCollected).toBe(0);
+  });
 });

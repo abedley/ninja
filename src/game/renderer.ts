@@ -1,8 +1,10 @@
 import { CircularSegment, LinearSegment } from '../physics/geometry';
+import { GOLD_RADIUS, type Gold } from '../physics/gold';
 import { TILE_SIZE } from '../physics/tileDefs';
 import type { TileMap } from '../physics/tileMap';
 import type { Pose, P } from './animator';
 import type { Debris } from './debris';
+import { SPARKLE_FRAMES, type Sparkle } from './sparkles';
 import { TILE_POLYS } from './tileShapes';
 
 export const COLORS = {
@@ -12,6 +14,9 @@ export const COLORS = {
   tileEdge: '#5f606e',
   ninja: '#111114',
   scarf: '#b3262f',
+  gold: '#dcaa2e',
+  goldLight: '#f6dc86',
+  goldDark: '#a3761a',
   debug: '#d0204a',
 };
 
@@ -130,11 +135,21 @@ export class Renderer {
     ctx.setTransform(s, 0, 0, s, this.offsetX * this.dpr, this.offsetY * this.dpr);
   }
 
-  draw(ninja: NinjaView | null, debris: Debris | null, debugLines: string[] | null, debugCircle: { x: number; y: number; r: number } | null): void {
+  draw(
+    gold: readonly Gold[],
+    sparkles: readonly Sparkle[],
+    ninja: NinjaView | null,
+    debris: Debris | null,
+    debugLines: string[] | null,
+    debugCircle: { x: number; y: number; r: number } | null,
+  ): void {
     const ctx = this.ctx;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.drawImage(this.staticLayer, 0, 0);
     this.applyWorldTransform(ctx);
+
+    this.drawGold(ctx, gold, debugCircle !== null);
+    this.drawSparkles(ctx, sparkles);
 
     if (debris) debris.draw(ctx, COLORS.ninja);
     if (ninja) this.drawNinja(ctx, ninja);
@@ -161,6 +176,70 @@ export class Renderer {
         y += 16;
       }
     }
+  }
+
+  /** Gold pieces: small bevelled squares, as in N. */
+  private drawGold(ctx: CanvasRenderingContext2D, gold: readonly Gold[], debug: boolean): void {
+    const h = 5;
+    const b = 1.5;
+    for (const g of gold) {
+      if (!g.active) continue;
+      const x = g.x - h;
+      const y = g.y - h;
+      ctx.fillStyle = COLORS.goldDark;
+      ctx.fillRect(x, y, h * 2, h * 2);
+      // Lit top-left bevel, then the face.
+      ctx.fillStyle = COLORS.goldLight;
+      ctx.beginPath();
+      ctx.moveTo(x, y + h * 2);
+      ctx.lineTo(x, y);
+      ctx.lineTo(x + h * 2, y);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = COLORS.gold;
+      ctx.fillRect(x + b, y + b, h * 2 - 2 * b, h * 2 - 2 * b);
+    }
+    if (debug) {
+      ctx.strokeStyle = COLORS.debug;
+      ctx.lineWidth = 0.5;
+      ctx.beginPath();
+      for (const g of gold) {
+        if (!g.active) continue;
+        ctx.moveTo(g.x + GOLD_RADIUS, g.y);
+        ctx.arc(g.x, g.y, GOLD_RADIUS, 0, Math.PI * 2);
+      }
+      ctx.stroke();
+    }
+  }
+
+  /** A quick burst where gold was picked up: an expanding ring and four glints. */
+  private drawSparkles(ctx: CanvasRenderingContext2D, sparkles: readonly Sparkle[]): void {
+    for (const s of sparkles) {
+      const t = s.age / SPARKLE_FRAMES;
+      const ease = 1 - (1 - t) * (1 - t);
+      ctx.globalAlpha = 1 - t;
+      ctx.strokeStyle = COLORS.gold;
+      ctx.lineWidth = 1.2 * (1 - t) + 0.3;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, 4 + ease * 9, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = COLORS.goldLight;
+      const d = 3 + ease * 13;
+      const r = 1.6 * (1 - t) + 0.4;
+      for (let i = 0; i < 4; i++) {
+        const a = Math.PI / 4 + (i * Math.PI) / 2;
+        const gx = s.x + Math.cos(a) * d;
+        const gy = s.y + Math.sin(a) * d;
+        ctx.beginPath();
+        ctx.moveTo(gx, gy - r * 1.6);
+        ctx.lineTo(gx + r, gy);
+        ctx.lineTo(gx, gy + r * 1.6);
+        ctx.lineTo(gx - r, gy);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+    ctx.globalAlpha = 1;
   }
 
   private drawNinja(ctx: CanvasRenderingContext2D, n: NinjaView): void {
