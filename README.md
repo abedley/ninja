@@ -26,6 +26,14 @@ npm run build    # production build in dist/
 
 With the physics overlay on, clicking with a mouse drops the ninja at that spot.
 
+## Hosting
+
+Pushing to `main` runs `.github/workflows/deploy.yml`. It runs the tests, builds
+the game and publishes it to GitHub Pages at `https://<user>.github.io/<repo>/`.
+This needs a one-time setting in the repo: **Settings → Pages → Build and
+deployment → Source: GitHub Actions**. Asset paths are relative
+(`vite.config.ts`), so the build works under any sub-path.
+
 ## How faithful is the physics?
 
 The engine in `src/physics/` is a port of N++'s movement and collision model,
