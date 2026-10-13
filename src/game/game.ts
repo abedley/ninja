@@ -2,9 +2,10 @@ import { parseLevel, type Level, type LevelDef } from '../level/level';
 import { NINJA, NinjaState } from '../physics/ninja';
 import { Simulator, TICK_RATE } from '../physics/simulator';
 import { AnimState, NinjaAnimator, type P, type Pose } from './animator';
+import { AutoRunner } from './autoRunner';
 import { Debris } from './debris';
 import type { Input } from './input';
-import { poseToWorld, type Renderer } from './renderer';
+import { poseToWorld, type Camera, type Renderer } from './renderer';
 import { SPARKLE_FRAMES, type Sparkle } from './sparkles';
 
 const STEP_MS = 1000 / TICK_RATE;
@@ -14,6 +15,21 @@ const MAX_STEPS_PER_FRAME = 5;
 const RESTART_DELAY = 20;
 const SCARF_LINKS = 5;
 const SCARF_LINK_LEN = 2.6;
+/** The camera leads the ninja by this much (px) in the running direction... */
+const CAMERA_LEAD_X = 28;
+/** ...and looks a little upwards, since levels are climbed. */
+const CAMERA_LEAD_Y = -40;
+/** Fraction of the remaining distance the camera covers each frame. */
+const CAMERA_FOLLOW_X = 0.08;
+const CAMERA_FOLLOW_Y = 0.12;
+
+/** Where the player is in the start / play / retry cycle. */
+export const enum Phase {
+  /** At the spawn point, waiting for the first tap. */
+  Ready,
+  Playing,
+  Dead,
+}
 
 const STATE_NAMES = ['Immobile', 'Running', 'Sliding', 'Jumping', 'Falling', 'WallSliding', 'Dead', 'Dying', 'Celebrating', 'Disabled'];
 
@@ -21,15 +37,21 @@ export class Game {
   private level!: Level;
   private sim!: Simulator;
   private readonly animator = new NinjaAnimator();
+  private runner!: AutoRunner;
   private debris: Debris | null = null;
   private deadFrames = 0;
   private jumpWasHeld = false;
+  /** Ignore jump until it is released (after the tap that started or restarted play). */
+  private jumpNeedsRelease = false;
+  phase = Phase.Ready;
   private scarf: P[] = [];
   private scarfOld: P[] = [];
   private sparkles: Sparkle[] = [];
   // Previous-frame position for render interpolation.
   private prevX = 0;
   private prevY = 0;
+  private readonly cam: Camera = { x: 0, y: 0 };
+  private readonly prevCam: Camera = { x: 0, y: 0 };
 
   private accumulator = 0;
   private lastTime = -1;
@@ -50,24 +72,29 @@ export class Game {
     this.restart();
   }
 
+  /** Back to the spawn point, waiting for a tap to start. */
   restart(): void {
     this.respawnAt(this.level.spawnX, this.level.spawnY);
   }
 
-  /** Debug helper: drop a fresh ninja at a screen position (CSS px). */
+  /** Debug helper: drop a fresh ninja at a screen position (CSS px), already running. */
   teleportToScreen(sx: number, sy: number): void {
-    const r = this.renderer;
-    this.respawnAt((sx - r.offsetX) / r.scale, (sy - r.offsetY) / r.scale);
+    const [x, y] = this.renderer.screenToWorld(sx, sy);
+    this.respawnAt(x, y);
+    this.phase = Phase.Playing;
   }
 
   private respawnAt(x: number, y: number): void {
     this.sim = new Simulator(this.level.map, x, y, this.level.gold);
+    this.runner = new AutoRunner(this.sim.ninja);
+    this.phase = Phase.Ready;
     this.sparkles = [];
     this.animator.reset();
     this.debris = null;
     this.deadFrames = 0;
     this.prevX = x;
     this.prevY = y;
+    this.snapCamera();
     const knot = this.scarfAnchor();
     this.scarf = Array.from({ length: SCARF_LINKS }, (_, i): P => [knot[0] - i * SCARF_LINK_LEN, knot[1]]);
     this.scarfOld = this.scarf.map((p): P => [p[0], p[1]]);
@@ -99,29 +126,74 @@ export class Game {
 
   /** One fixed 60 Hz tick. */
   private step(): void {
-    const ninja = this.sim.ninja;
-    const hor = this.input.hor;
-    const jump = this.input.takeJump();
+    const held = this.input.takeJump();
+    const pressed = held && !this.jumpWasHeld;
+    this.jumpWasHeld = held;
     this.stepSparkles();
+    this.prevCam.x = this.cam.x;
+    this.prevCam.y = this.cam.y;
 
-    if (ninja.state === NinjaState.Dead) {
+    if (this.phase === Phase.Dead) {
       this.deadFrames++;
       this.debris?.step();
-      if (jump && !this.jumpWasHeld && this.deadFrames > RESTART_DELAY) this.restart();
-      this.jumpWasHeld = jump;
+      // A tap after death respawns and starts running straight away.
+      if (pressed && this.deadFrames > RESTART_DELAY) this.begin();
       return;
     }
-    this.jumpWasHeld = jump;
+    if (this.phase === Phase.Ready && pressed) this.begin();
 
+    // The tap that starts play isn't also a jump.
+    if (this.jumpNeedsRelease && !held) this.jumpNeedsRelease = false;
+    const jump = held && !this.jumpNeedsRelease;
+
+    const ninja = this.sim.ninja;
     this.prevX = ninja.xpos;
     this.prevY = ninja.ypos;
-    this.sim.tick(hor, jump);
+    if (this.phase === Phase.Playing) {
+      this.sim.tick(this.runner.input(ninja, jump && !ninja.jumpInputOld), jump);
+      this.runner.update(ninja);
+    } else {
+      // Waiting for the first tap: let the ninja settle at the spawn point.
+      this.sim.tick(0, false);
+    }
     this.animator.update(ninja);
+    this.followCamera();
     this.stepScarf();
     for (const g of this.sim.goldThisTick) this.sparkles.push({ x: g.x, y: g.y, age: 0 });
 
     // (Re-read the state: tick() may have changed it.)
-    if (this.isDead) this.explode();
+    if (this.isDead) {
+      this.phase = Phase.Dead;
+      this.explode();
+    }
+  }
+
+  /** Start running (from the spawn point, respawning first after a death). */
+  private begin(): void {
+    if (this.phase === Phase.Dead) this.restart();
+    this.phase = Phase.Playing;
+    this.jumpNeedsRelease = true;
+  }
+
+  private cameraTarget(): Camera {
+    const n = this.sim.ninja;
+    const lead = this.phase === Phase.Playing ? this.runner.dir * CAMERA_LEAD_X : 0;
+    const target = { x: n.xpos + lead, y: n.ypos + CAMERA_LEAD_Y };
+    this.renderer.clampCamera(target);
+    return target;
+  }
+
+  private followCamera(): void {
+    const t = this.cameraTarget();
+    this.cam.x += (t.x - this.cam.x) * CAMERA_FOLLOW_X;
+    this.cam.y += (t.y - this.cam.y) * CAMERA_FOLLOW_Y;
+  }
+
+  /** Jump the camera straight to the ninja (on respawn or when the screen changes size). */
+  snapCamera(): void {
+    const t = this.cameraTarget();
+    this.cam.x = this.prevCam.x = t.x;
+    this.cam.y = this.prevCam.y = t.y;
   }
 
   private scarfAnchor(): P {
@@ -189,7 +261,12 @@ export class Game {
     const x = this.prevX + (n.xpos - this.prevX) * alpha;
     const y = this.prevY + (n.ypos - this.prevY) * alpha;
     const pose: Pose = this.animator.pose(this.skidAmount());
+    const cam = {
+      x: this.prevCam.x + (this.cam.x - this.prevCam.x) * alpha,
+      y: this.prevCam.y + (this.cam.y - this.prevCam.y) * alpha,
+    };
     this.renderer.draw(
+      cam,
       this.sim.gold,
       this.sparkles,
       alive ? { x, y, tilt: this.animator.tilt, facing: this.animator.facing, pose, scarf: this.scarf } : null,
@@ -208,7 +285,7 @@ export class Game {
       `speed   ${n.xspeed.toFixed(3)}, ${n.yspeed.toFixed(3)}`,
       `ground  ${n.airborn ? 'no' : `yes  n=(${n.floorNormalizedX.toFixed(2)}, ${n.floorNormalizedY.toFixed(2)})`}`,
       `wall    ${n.walled ? `yes  n=${n.wallNormal.toFixed(0)}` : 'no'}`,
-      `input   ${this.input.hor} ${n.jumpInput ? 'jump' : ''}`,
+      `input   ${n.horInput} ${n.jumpInput ? 'jump' : ''}`,
       `gold    ${this.goldCollected}/${this.goldTotal}`,
     ];
     if (this.animator.state === AnimState.Run) lines.push(`run     ${this.animator.runCycle}`);

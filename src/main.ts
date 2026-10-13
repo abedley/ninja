@@ -1,13 +1,10 @@
-import { Game } from './game/game';
+import { Game, Phase } from './game/game';
 import { Input } from './game/input';
 import { Renderer } from './game/renderer';
-import { PLAYGROUND } from './level/levels';
+import { LEVELS, TOWER } from './level/levels';
 
 const app = document.getElementById('app')!;
 const canvas = document.getElementById('game') as HTMLCanvasElement;
-const padLeft = document.getElementById('pad-left')!;
-const padRight = document.getElementById('pad-right')!;
-const padJump = document.getElementById('pad-jump')!;
 const message = document.getElementById('message')!;
 const btnRestart = document.getElementById('btn-restart')!;
 const btnDebug = document.getElementById('btn-debug')!;
@@ -15,37 +12,28 @@ const btnFullscreen = document.getElementById('btn-fullscreen')!;
 const goldCounter = document.getElementById('gold-counter')!;
 const goldCount = document.getElementById('gold-count')!;
 
+// ?level=<name> picks another level (e.g. ?level=playground).
+const wanted = new URLSearchParams(location.search).get('level')?.toLowerCase();
+const levelDef = LEVELS.find((l) => l.name.toLowerCase() === wanted) ?? TOWER;
+
 const renderer = new Renderer(canvas);
 const input = new Input(app);
-const game = new Game(renderer, input, PLAYGROUND);
+const game = new Game(renderer, input, levelDef);
 
 function resize(): void {
   renderer.resize(window.innerWidth, window.innerHeight, Math.min(window.devicePixelRatio || 1, 3));
-  const l = padLeft.getBoundingClientRect();
-  const r = padRight.getBoundingClientRect();
-  input.layout = {
-    // Before the touch pads are first shown they have no size; fall back to sensible defaults.
-    padCenterX: l.width ? (l.right + r.left) / 2 : 100,
-    jumpAreaX: window.innerWidth / 2,
-  };
+  game.snapCamera();
 }
 
-function setTouchMode(touch: boolean): void {
-  document.body.classList.toggle('touch', touch);
-  resize();
-}
-
-input.onTouchModeChange = setTouchMode;
 input.onRestart = () => game.restart();
 input.onToggleDebug = toggleDebug;
-setTouchMode(matchMedia('(pointer: coarse)').matches);
 
 function toggleDebug(): void {
   game.debug = !game.debug;
   btnDebug.setAttribute('aria-pressed', String(game.debug));
 }
 
-// HUD buttons must not also count as movement/jump touches.
+// HUD buttons must not also count as jumps.
 for (const btn of [btnRestart, btnDebug, btnFullscreen]) {
   btn.addEventListener('pointerdown', (e) => e.stopPropagation());
 }
@@ -60,8 +48,8 @@ if (document.fullscreenEnabled) {
         await document.exitFullscreen();
       } else {
         await document.documentElement.requestFullscreen({ navigationUI: 'hide' });
-        // Not supported everywhere (notably iOS); landscape is only a preference.
-        await (screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> }).lock?.('landscape');
+        // Not supported everywhere (notably iOS); portrait is only a preference.
+        await (screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> }).lock?.('portrait');
       }
     } catch {
       /* ignore */
@@ -69,9 +57,9 @@ if (document.fullscreenEnabled) {
   });
 }
 
-// With the physics overlay on, clicking with a mouse drops the ninja there.
+// With the physics overlay on, alt-clicking drops the ninja at that spot.
 canvas.addEventListener('pointerdown', (e) => {
-  if (game.debug && e.pointerType === 'mouse') game.teleportToScreen(e.clientX, e.clientY);
+  if (game.debug && e.altKey) game.teleportToScreen(e.clientX, e.clientY);
 });
 
 window.addEventListener('resize', resize);
@@ -82,10 +70,21 @@ document.addEventListener('visibilitychange', () => {
   else game.start();
 });
 
-// Reflect touch state on the on-screen pads, show the retry prompt and count gold.
-let lastUi = '';
+const PROMPTS: Record<Phase, string> = {
+  [Phase.Ready]: 'Tap to start',
+  [Phase.Playing]: '',
+  [Phase.Dead]: 'Tap to try again',
+};
+
+// Prompt and gold counter.
+let lastPhase = -1;
 let lastGold = -1;
 function updateUi(): void {
+  if (game.phase !== lastPhase) {
+    lastPhase = game.phase;
+    message.textContent = PROMPTS[game.phase];
+    message.hidden = game.phase === Phase.Playing;
+  }
   const gold = game.goldCollected;
   if (gold !== lastGold) {
     const total = game.goldTotal;
@@ -99,17 +98,6 @@ function updateUi(): void {
       goldCounter.classList.add('bump');
     }
     lastGold = gold;
-  }
-
-  const dir = input.touchDir;
-  const ui = `${dir}|${input.touchJump}|${game.isDead}|${input.usingTouch}`;
-  if (ui !== lastUi) {
-    lastUi = ui;
-    padLeft.classList.toggle('active', dir === -1);
-    padRight.classList.toggle('active', dir === 1);
-    padJump.classList.toggle('active', input.touchJump);
-    message.hidden = !game.isDead;
-    message.textContent = input.usingTouch ? 'Tap jump to try again' : 'Press jump to try again';
   }
   requestAnimationFrame(updateUi);
 }

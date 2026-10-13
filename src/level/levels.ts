@@ -8,3 +8,6 @@ import levels from './levels.json';
 export const LEVELS: LevelDef[] = levels;
 
 export const PLAYGROUND = LEVELS[0];
+
+/** The default level: a one-button climb, made for portrait screens. */
+export const TOWER = LEVELS.find((l) => l.name === 'Tower')!;

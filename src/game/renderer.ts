@@ -20,7 +20,13 @@ export const COLORS = {
   debug: '#d0204a',
 };
 
-/** How much of the solid border frame to show around the level, in px. */
+/**
+ * Zoom: the view shows at least this much of the world (px) across its
+ * narrower side, and at least VIEW_MIN_H vertically.
+ */
+const VIEW_MIN_W = 10 * TILE_SIZE;
+const VIEW_MIN_H = 20 * TILE_SIZE;
+/** How much of the solid border frame to show at the edges of the level, in px. */
 const BORDER_VISIBLE = 8;
 
 export interface NinjaView {
@@ -32,15 +38,22 @@ export interface NinjaView {
   scarf: readonly P[];
 }
 
+export interface Camera {
+  x: number;
+  y: number;
+}
+
 export class Renderer {
   private readonly ctx: CanvasRenderingContext2D;
-  private readonly staticLayer = document.createElement('canvas');
   private map: TileMap | null = null;
+  private solid: Path2D | null = null;
+  private outline: Path2D | null = null;
   private dpr = 1;
-  /** World-to-screen transform (CSS px). */
+  /** World-to-screen scale (CSS px per world px). */
   scale = 1;
-  offsetX = 0;
-  offsetY = 0;
+  /** World position at the top-left of the screen for the current frame. */
+  private viewX = 0;
+  private viewY = 0;
   private cssW = 0;
   private cssH = 0;
 
@@ -52,7 +65,7 @@ export class Renderer {
 
   setMap(map: TileMap): void {
     this.map = map;
-    this.layout();
+    this.buildPaths(map);
   }
 
   resize(cssW: number, cssH: number, dpr: number): void {
@@ -63,38 +76,35 @@ export class Renderer {
     this.canvas.height = Math.round(cssH * dpr);
     this.canvas.style.width = `${cssW}px`;
     this.canvas.style.height = `${cssH}px`;
-    this.layout();
+    this.scale = Math.min(cssW / VIEW_MIN_W, cssH / VIEW_MIN_H);
   }
 
-  /** Fit the level to the screen, then pre-render the static tiles. */
-  private layout(): void {
+  /** Size of the view in world px. */
+  get viewW(): number {
+    return this.cssW / this.scale;
+  }
+
+  get viewH(): number {
+    return this.cssH / this.scale;
+  }
+
+  /**
+   * Keep a camera centre inside the level. On an axis where the level is
+   * smaller than the screen, the level is centred instead.
+   */
+  clampCamera(cam: Camera): void {
     const map = this.map;
     if (!map || !this.cssW) return;
-    const inset = TILE_SIZE - BORDER_VISIBLE;
-    const viewW = map.width * TILE_SIZE - 2 * inset;
-    const viewH = map.height * TILE_SIZE - 2 * inset;
-    this.scale = Math.min(this.cssW / viewW, this.cssH / viewH);
-    this.offsetX = (this.cssW - viewW * this.scale) / 2 - inset * this.scale;
-    this.offsetY = (this.cssH - viewH * this.scale) / 2 - inset * this.scale;
-    this.renderStatic(map, inset, viewW, viewH);
+    cam.x = clampAxis(cam.x, this.viewW, map.width * TILE_SIZE);
+    cam.y = clampAxis(cam.y, this.viewH, map.height * TILE_SIZE);
   }
 
-  private renderStatic(map: TileMap, inset: number, viewW: number, viewH: number): void {
-    const layer = this.staticLayer;
-    layer.width = this.canvas.width;
-    layer.height = this.canvas.height;
-    const ctx = layer.getContext('2d')!;
-    ctx.fillStyle = COLORS.letterbox;
-    ctx.fillRect(0, 0, layer.width, layer.height);
-    this.applyWorldTransform(ctx);
+  screenToWorld(sx: number, sy: number): [number, number] {
+    return [this.viewX + sx / this.scale, this.viewY + sy / this.scale];
+  }
 
-    // Clip to the visible part of the map.
-    ctx.beginPath();
-    ctx.rect(inset, inset, viewW, viewH);
-    ctx.clip();
-    ctx.fillStyle = COLORS.background;
-    ctx.fillRect(inset, inset, viewW, viewH);
-
+  /** Tile shapes and collision outlines, as world-space paths drawn every frame. */
+  private buildPaths(map: TileMap): void {
     // All tiles in one path: a single nonzero fill merges them without seams.
     const solid = new Path2D();
     for (let ty = 0; ty < map.height; ty++) {
@@ -108,34 +118,25 @@ export class Renderer {
         solid.closePath();
       }
     }
-    ctx.fillStyle = COLORS.tile;
-    ctx.fill(solid);
-
     // Outline exactly what the ninja collides with.
-    ctx.strokeStyle = COLORS.tileEdge;
-    ctx.lineWidth = Math.max(1, this.dpr) / (this.scale * this.dpr);
-    ctx.lineCap = 'round';
-    ctx.beginPath();
+    const outline = new Path2D();
     for (const seg of map.allSegments()) {
       if (seg instanceof LinearSegment) {
-        ctx.moveTo(seg.x1, seg.y1);
-        ctx.lineTo(seg.x2, seg.y2);
+        outline.moveTo(seg.x1, seg.y1);
+        outline.lineTo(seg.x2, seg.y2);
       } else if (seg instanceof CircularSegment) {
         const a0 = Math.atan2(0, seg.hor);
         const a1 = Math.atan2(seg.ver, 0);
-        ctx.moveTo(seg.pHorX, seg.pHorY);
-        ctx.arc(seg.cx, seg.cy, seg.radius, a0, a1, Math.sign(seg.hor * seg.ver) < 0);
+        outline.moveTo(seg.pHorX, seg.pHorY);
+        outline.arc(seg.cx, seg.cy, seg.radius, a0, a1, Math.sign(seg.hor * seg.ver) < 0);
       }
     }
-    ctx.stroke();
-  }
-
-  private applyWorldTransform(ctx: CanvasRenderingContext2D): void {
-    const s = this.scale * this.dpr;
-    ctx.setTransform(s, 0, 0, s, this.offsetX * this.dpr, this.offsetY * this.dpr);
+    this.solid = solid;
+    this.outline = outline;
   }
 
   draw(
+    cam: Camera,
     gold: readonly Gold[],
     sparkles: readonly Sparkle[],
     ninja: NinjaView | null,
@@ -144,13 +145,31 @@ export class Renderer {
     debugCircle: { x: number; y: number; r: number } | null,
   ): void {
     const ctx = this.ctx;
+    const map = this.map;
+    if (!map || !this.solid || !this.outline) return;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.drawImage(this.staticLayer, 0, 0);
-    this.applyWorldTransform(ctx);
+    ctx.fillStyle = COLORS.letterbox;
+    ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+    // Snap the view to whole device pixels so tile edges don't shimmer while scrolling.
+    const s = this.scale * this.dpr;
+    const ox = Math.round((this.cssW / 2 - cam.x * this.scale) * this.dpr);
+    const oy = Math.round((this.cssH / 2 - cam.y * this.scale) * this.dpr);
+    this.viewX = -ox / s;
+    this.viewY = -oy / s;
+    ctx.setTransform(s, 0, 0, s, ox, oy);
+
+    ctx.fillStyle = COLORS.background;
+    ctx.fillRect(0, 0, map.width * TILE_SIZE, map.height * TILE_SIZE);
+    ctx.fillStyle = COLORS.tile;
+    ctx.fill(this.solid);
+    ctx.strokeStyle = COLORS.tileEdge;
+    ctx.lineWidth = 1 / this.scale;
+    ctx.lineCap = 'round';
+    ctx.stroke(this.outline);
 
     this.drawGold(ctx, gold, debugCircle !== null);
     this.drawSparkles(ctx, sparkles);
-
     if (debris) debris.draw(ctx, COLORS.ninja);
     if (ninja) this.drawNinja(ctx, ninja);
 
@@ -167,7 +186,7 @@ export class Renderer {
       ctx.font = '12px ui-monospace, Menlo, monospace';
       ctx.textBaseline = 'top';
       const x = 12;
-      let y = 56;
+      let y = 64;
       ctx.fillStyle = 'rgba(20, 20, 24, 0.72)';
       ctx.fillRect(x - 6, y - 6, 220, debugLines.length * 16 + 10);
       ctx.fillStyle = '#f2f2f5';
@@ -289,4 +308,10 @@ export function poseToWorld(p: P, x: number, y: number, tilt: number, facing: nu
   const c = Math.cos(tilt);
   const s = Math.sin(tilt);
   return [x + lx * c - p[1] * s, y + lx * s + p[1] * c];
+}
+
+function clampAxis(c: number, view: number, size: number): number {
+  const inset = TILE_SIZE - BORDER_VISIBLE;
+  if (view >= size - 2 * inset) return size / 2;
+  return Math.min(Math.max(c, inset + view / 2), size - inset - view / 2);
 }

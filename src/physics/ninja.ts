@@ -71,6 +71,8 @@ export class Ninja {
   airbornOld = false;
   walled = false;
   wallNormal = 0;
+  /** Number of wall jumps so far. */
+  wallJumps = 0;
 
   horInput: HorInput = 0;
   jumpInput = false;
@@ -279,6 +281,8 @@ export class Ninja {
   }
 
   wallJump(): void {
+    // Bookkeeping only (lets the game react to wall jumps); no effect on the physics.
+    this.wallJumps++;
     let jx: number;
     let jy: number;
     if (this.horInput * this.wallNormal < 0 && this.state === NinjaState.WallSliding) {
