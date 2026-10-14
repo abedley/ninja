@@ -7,30 +7,36 @@ import type { TileMap } from '../physics/tileMap';
 import type { Pose, P } from './animator';
 import type { Debris } from './debris';
 import { SPARKLE_FRAMES, sparkleLife, type Sparkle } from './sparkles';
+import { Cityscape } from './cityscape';
 import { TILE_POLYS } from './tileShapes';
 
+/** Midnight-city neon palette. */
 export const COLORS = {
-  letterbox: '#a9aab3',
-  background: '#cbcbd2',
-  tile: '#7c7d8c',
-  tileEdge: '#5f606e',
-  ninja: '#111114',
-  scarf: '#b3262f',
-  gold: '#dcaa2e',
-  goldLight: '#f6dc86',
-  goldDark: '#a3761a',
-  mine: '#1b1b20',
-  mineCore: '#e0283c',
-  mineArming: '#f0a020',
-  blast: '#e0283c',
-  key: '#2b8fd6',
-  keyLight: '#a6d8fa',
-  keyDark: '#1b5e93',
-  doorFrame: '#2a2a31',
-  doorShut: '#585a6b',
-  doorOpen: '#fbf6dc',
-  doorGlow: '#ffe98a',
-  debug: '#d0204a',
+  tile: '#15112f',
+  /** Platform edges: a neon tube (wide faint glow, then a bright core). */
+  edge: '#25d4ff',
+  edgeCore: '#c9f6ff',
+  ninja: '#06040e',
+  /** The rim light around the ninja's dark silhouette. */
+  ninjaGlow: '#5fe6ff',
+  scarf: '#ff2bd6',
+  scarfCore: '#ffc6f2',
+  gold: '#ffd23f',
+  goldLight: '#fff2b8',
+  goldDark: '#c88a12',
+  mine: '#1a0610',
+  mineGlow: '#ff2d55',
+  mineCore: '#ff6a86',
+  mineArming: '#ffb020',
+  blast: '#ff2d55',
+  key: '#9dff4a',
+  keyLight: '#e2ffc6',
+  doorFrame: '#8a5cff',
+  doorShut: '#0d0a22',
+  doorOpen: '#f2ffe2',
+  doorGlow: '#9dff4a',
+  doorLeaf: '#1c1544',
+  debug: '#ff4a7a',
 };
 
 /**
@@ -63,9 +69,9 @@ export interface Camera {
 
 export class Renderer {
   private readonly ctx: CanvasRenderingContext2D;
+  private readonly city = new Cityscape();
   private map: TileMap | null = null;
-  private solid: Path2D | null = null;
-  private outline: Path2D | null = null;
+  private chunks: Chunk[] = [];
   private dpr = 1;
   /** World-to-screen scale (CSS px per world px). */
   scale = 1;
@@ -123,36 +129,63 @@ export class Renderer {
     return [this.viewX + sx / this.scale, this.viewY + sy / this.scale];
   }
 
-  /** Tile shapes and collision outlines, as world-space paths drawn every frame. */
+  /**
+   * Tile shapes, collision outlines and the platform texture, as world-space
+   * paths drawn every frame. They're split into bands of rows so only the
+   * bands on screen are drawn.
+   */
   private buildPaths(map: TileMap): void {
-    // All tiles in one path: a single nonzero fill merges them without seams.
-    const solid = new Path2D();
+    const chunks: Chunk[] = [];
+    for (let y = 0; y < map.height; y += CHUNK_ROWS) {
+      chunks.push({
+        y0: y * TILE_SIZE,
+        y1: Math.min(map.height, y + CHUNK_ROWS) * TILE_SIZE,
+        solid: new Path2D(),
+        outline: new Path2D(),
+        seams: new Path2D(),
+        windows: WINDOW_LIGHTS.map(() => new Path2D()),
+      });
+    }
+    const chunkAt = (y: number) => chunks[Math.min(chunks.length - 1, Math.max(0, Math.floor(y / TILE_SIZE / CHUNK_ROWS)))];
     for (let ty = 0; ty < map.height; ty++) {
+      const chunk = chunkAt(ty * TILE_SIZE);
       for (let tx = 0; tx < map.width; tx++) {
-        const poly = TILE_POLYS[map.tileAt(tx, ty)];
+        const id = map.tileAt(tx, ty);
+        const poly = TILE_POLYS[id];
         if (!poly) continue;
         const ox = tx * TILE_SIZE;
         const oy = ty * TILE_SIZE;
-        solid.moveTo(ox + poly[0][0], oy + poly[0][1]);
-        for (let i = 1; i < poly.length; i++) solid.lineTo(ox + poly[i][0], oy + poly[i][1]);
-        solid.closePath();
+        // All tiles of a band in one path: a single nonzero fill merges them without seams.
+        chunk.solid.moveTo(ox + poly[0][0], oy + poly[0][1]);
+        for (let i = 1; i < poly.length; i++) chunk.solid.lineTo(ox + poly[i][0], oy + poly[i][1]);
+        chunk.solid.closePath();
+        if (id !== 1) continue;
+        // Full tiles get panel seams and a few dimly lit windows (the same ones every time).
+        chunk.seams.rect(ox, oy, TILE_SIZE, 0.6);
+        chunk.seams.rect(ox, oy, 0.6, TILE_SIZE);
+        let h = (Math.imul(tx, 73856093) ^ Math.imul(ty, 19349663)) >>> 0;
+        for (let w = 0; w < 4; w++) {
+          h = (Math.imul(h, 1103515245) + 12345) >>> 0;
+          if (h % 100 >= 12) continue;
+          chunk.windows[(h >>> 8) % WINDOW_LIGHTS.length].rect(ox + 5 + (w % 2) * 10, oy + 4 + (w >> 1) * 10, 4, 5.5);
+        }
       }
     }
     // Outline exactly what the ninja collides with.
-    const outline = new Path2D();
     for (const seg of map.allSegments()) {
       if (seg instanceof LinearSegment) {
-        outline.moveTo(seg.x1, seg.y1);
-        outline.lineTo(seg.x2, seg.y2);
+        const path = chunkAt((seg.y1 + seg.y2) / 2).outline;
+        path.moveTo(seg.x1, seg.y1);
+        path.lineTo(seg.x2, seg.y2);
       } else if (seg instanceof CircularSegment) {
+        const path = chunkAt(seg.cy).outline;
         const a0 = Math.atan2(0, seg.hor);
         const a1 = Math.atan2(seg.ver, 0);
-        outline.moveTo(seg.pHorX, seg.pHorY);
-        outline.arc(seg.cx, seg.cy, seg.radius, a0, a1, Math.sign(seg.hor * seg.ver) < 0);
+        path.moveTo(seg.pHorX, seg.pHorY);
+        path.arc(seg.cx, seg.cy, seg.radius, a0, a1, Math.sign(seg.hor * seg.ver) < 0);
       }
     }
-    this.solid = solid;
-    this.outline = outline;
+    this.chunks = chunks;
   }
 
   draw(
@@ -168,10 +201,14 @@ export class Renderer {
   ): void {
     const ctx = this.ctx;
     const map = this.map;
-    if (!map || !this.solid || !this.outline) return;
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.fillStyle = COLORS.letterbox;
-    ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    if (!map) return;
+    const now = performance.now();
+
+    // The city, in parallax: how far the camera has climbed from the bottom of the level drives it.
+    const bottom = { x: cam.x, y: Infinity };
+    this.clampCamera(bottom);
+    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    this.city.draw(ctx, this.cssW, this.cssH, (bottom.y - cam.y) * this.scale, cam.x * this.scale, now);
 
     // Snap the view to whole device pixels so tile edges don't shimmer while scrolling.
     const s = this.scale * this.dpr;
@@ -181,20 +218,42 @@ export class Renderer {
     this.viewY = -oy / s;
     ctx.setTransform(s, 0, 0, s, ox, oy);
 
-    ctx.fillStyle = COLORS.background;
-    ctx.fillRect(0, 0, map.width * TILE_SIZE, map.height * TILE_SIZE);
+    // Platforms: dark building blocks, with a few lit windows, edged with neon tubes.
+    // (Glow reaches a few px beyond a band, so bands just off screen are drawn too.)
+    const visible = this.chunks.filter((c) => c.y1 + 8 > this.viewY && c.y0 - 8 < this.viewY + this.viewH);
     ctx.fillStyle = COLORS.tile;
-    ctx.fill(this.solid);
-    ctx.strokeStyle = COLORS.tileEdge;
-    ctx.lineWidth = 1 / this.scale;
+    for (const c of visible) ctx.fill(c.solid);
+    ctx.fillStyle = 'rgba(140, 150, 255, 0.07)';
+    for (const c of visible) ctx.fill(c.seams);
+    WINDOW_LIGHTS.forEach((color, i) => {
+      ctx.fillStyle = color;
+      for (const c of visible) ctx.fill(c.windows[i]);
+    });
     ctx.lineCap = 'round';
-    ctx.stroke(this.outline);
+    ctx.lineJoin = 'round';
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.strokeStyle = COLORS.edge;
+    for (const [width, alpha] of [[8, 0.05], [3.2, 0.12], [1.4, 0.4]]) {
+      ctx.globalAlpha = alpha;
+      ctx.lineWidth = width;
+      for (const c of visible) ctx.stroke(c.outline);
+    }
+    ctx.globalAlpha = 0.9;
+    ctx.strokeStyle = COLORS.edgeCore;
+    ctx.lineWidth = 0.55;
+    for (const c of visible) ctx.stroke(c.outline);
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
 
-    this.drawExit(ctx, exit, debugCircle !== null);
-    this.drawGold(ctx, gold, debugCircle !== null);
-    this.drawMines(ctx, mines, debugCircle !== null);
+    this.drawExit(ctx, exit, debugCircle !== null, now);
+    this.drawGold(ctx, gold, debugCircle !== null, now);
+    this.drawMines(ctx, mines, debugCircle !== null, now);
     this.drawSparkles(ctx, sparkles);
-    if (debris) debris.draw(ctx, COLORS.ninja);
+    if (debris) {
+      this.glow(COLORS.ninjaGlow, 2.5);
+      debris.draw(ctx, COLORS.ninja);
+      this.noGlow();
+    }
     if (ninja) this.drawNinja(ctx, ninja);
 
     if (debugCircle) {
@@ -221,34 +280,45 @@ export class Renderer {
     }
   }
 
+  /** Glow for what's drawn next (blur in world px, so it scales with the zoom). */
+  private glow(color: string, blur: number): void {
+    this.ctx.shadowColor = color;
+    this.ctx.shadowBlur = blur * this.scale * this.dpr;
+  }
+
+  private noGlow(): void {
+    this.ctx.shadowBlur = 0;
+    this.ctx.shadowColor = 'transparent';
+  }
+
+  /** Whether a circle (world px) is on screen. */
+  private onScreen(x: number, y: number, r: number): boolean {
+    return x + r > this.viewX && x - r < this.viewX + this.viewW && y + r > this.viewY && y - r < this.viewY + this.viewH;
+  }
+
   /**
-   * The exit door fills its tile: shut, it is a dark panel with a keyhole;
-   * open, it glows. The key floats and bobs, with a soft halo so it stands out.
+   * The exit door fills its tile: shut, a dark panel in a dim violet frame
+   * with a glowing keyhole; open, it blazes. The key floats and bobs in a halo.
    */
-  private drawExit(ctx: CanvasRenderingContext2D, exit: ExitView, debug: boolean): void {
+  private drawExit(ctx: CanvasRenderingContext2D, exit: ExitView, debug: boolean, now: number): void {
     const { door, key } = exit;
-    const now = performance.now();
-    if (door) {
+    if (door && this.onScreen(door.x, door.y, 40)) {
       const w = 9;
       const h = 12;
       const x = door.x;
       const y = door.y;
       if (door.open) {
-        const glow = 0.35 + 0.15 * Math.sin(now / 220);
-        ctx.fillStyle = COLORS.doorGlow;
-        ctx.globalAlpha = glow;
-        ctx.beginPath();
-        ctx.ellipse(x, y, w + 7, h + 6, 0, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.globalAlpha = 1;
-      }
-      ctx.fillStyle = COLORS.doorFrame;
-      ctx.fillRect(x - w - 1.5, y - h - 1.5, (w + 1.5) * 2, h * 2 + 1.5);
-      ctx.fillStyle = door.open ? COLORS.doorOpen : COLORS.doorShut;
-      ctx.fillRect(x - w, y - h, w * 2, h * 2);
-      if (door.open) {
+        const pulse = 0.75 + 0.25 * Math.sin(now / 220);
+        radialGlow(ctx, x, y, 34, COLORS.doorGlow, 0.45 * pulse);
+        const light = ctx.createLinearGradient(0, y - h, 0, y + h);
+        light.addColorStop(0, COLORS.doorOpen);
+        light.addColorStop(1, COLORS.doorGlow);
+        ctx.fillStyle = light;
+        this.glow(COLORS.doorGlow, 8);
+        ctx.fillRect(x - w, y - h, w * 2, h * 2);
+        this.noGlow();
         // The door leaf, swung inwards.
-        ctx.fillStyle = COLORS.doorShut;
+        ctx.fillStyle = COLORS.doorLeaf;
         ctx.beginPath();
         ctx.moveTo(x - w, y - h);
         ctx.lineTo(x - w + 5, y - h + 3);
@@ -256,9 +326,14 @@ export class Renderer {
         ctx.lineTo(x - w, y + h);
         ctx.closePath();
         ctx.fill();
+        ctx.strokeStyle = COLORS.doorOpen;
       } else {
-        // Keyhole, in the key's colour.
+        ctx.fillStyle = COLORS.doorShut;
+        ctx.fillRect(x - w, y - h, w * 2, h * 2);
+        // Keyhole, glowing in the key's colour.
+        this.glow(COLORS.key, 3);
         ctx.fillStyle = COLORS.key;
+        ctx.globalAlpha = 0.6 + 0.3 * Math.sin(now / 400);
         ctx.beginPath();
         ctx.arc(x, y - 1.5, 2, 0, Math.PI * 2);
         ctx.moveTo(x - 1, y - 1);
@@ -267,26 +342,23 @@ export class Renderer {
         ctx.lineTo(x - 1.6, y + 3.5);
         ctx.closePath();
         ctx.fill();
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = COLORS.doorFrame;
       }
+      this.glow(door.open ? COLORS.doorGlow : COLORS.doorFrame, door.open ? 6 : 3);
+      ctx.lineWidth = 1.4;
+      ctx.strokeRect(x - w - 0.7, y - h - 0.7, w * 2 + 1.4, h * 2 + 0.7);
+      this.noGlow();
     }
-    if (key?.active) {
+    if (key?.active && this.onScreen(key.x, key.y, 20)) {
       const x = key.x;
       const y = key.y + Math.sin(now / 300) * 1.2;
-      ctx.fillStyle = COLORS.keyLight;
-      ctx.globalAlpha = 0.35 + 0.15 * Math.sin(now / 300);
-      ctx.beginPath();
-      ctx.arc(x, y, 9, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.globalAlpha = 1;
+      radialGlow(ctx, x, y, 14, COLORS.key, 0.3 + 0.12 * Math.sin(now / 300));
       ctx.save();
       ctx.translate(x, y);
       ctx.rotate(-Math.PI / 4);
       ctx.scale(1.25, 1.25);
-      ctx.strokeStyle = COLORS.keyDark;
-      ctx.fillStyle = COLORS.key;
-      ctx.lineWidth = 0.8;
-      ctx.lineJoin = 'round';
-      // Bow (the ring), shaft and two teeth.
+      // Bow (the ring), shaft and two teeth, as a neon outline.
       ctx.beginPath();
       ctx.arc(-3, 0, 2.6, 0, Math.PI * 2);
       ctx.moveTo(-0.6, -0.9);
@@ -300,12 +372,17 @@ export class Renderer {
       ctx.lineTo(1.6, 0.9);
       ctx.lineTo(-0.6, 0.9);
       ctx.closePath();
+      ctx.fillStyle = 'rgba(157, 255, 74, 0.25)';
       ctx.fill('evenodd');
+      this.glow(COLORS.key, 4);
+      ctx.strokeStyle = COLORS.key;
+      ctx.lineWidth = 0.9;
+      ctx.lineJoin = 'round';
       ctx.stroke();
-      ctx.fillStyle = COLORS.background;
-      ctx.beginPath();
-      ctx.arc(-3, 0, 1, 0, Math.PI * 2);
-      ctx.fill();
+      this.noGlow();
+      ctx.strokeStyle = COLORS.keyLight;
+      ctx.lineWidth = 0.35;
+      ctx.stroke();
       ctx.restore();
     }
     if (debug) {
@@ -324,26 +401,24 @@ export class Renderer {
     }
   }
 
-  /** Gold pieces: small bevelled squares, as in N. */
-  private drawGold(ctx: CanvasRenderingContext2D, gold: readonly Gold[], debug: boolean): void {
-    const h = 5;
-    const b = 1.5;
+  /** Gold: glowing neon squares that shimmer, each a little out of step. */
+  private drawGold(ctx: CanvasRenderingContext2D, gold: readonly Gold[], debug: boolean, now: number): void {
+    const h = 4.5;
     for (const g of gold) {
-      if (!g.active) continue;
-      const x = g.x - h;
-      const y = g.y - h;
-      ctx.fillStyle = COLORS.goldDark;
-      ctx.fillRect(x, y, h * 2, h * 2);
-      // Lit top-left bevel, then the face.
+      if (!g.active || !this.onScreen(g.x, g.y, 12)) continue;
+      const shimmer = 0.8 + 0.2 * Math.sin(now / 350 + g.x * 0.13 + g.y * 0.07);
+      radialGlow(ctx, g.x, g.y, 11, COLORS.gold, 0.22 * shimmer);
+      ctx.fillStyle = 'rgba(255, 210, 63, 0.18)';
+      ctx.fillRect(g.x - h, g.y - h, h * 2, h * 2);
+      this.glow(COLORS.gold, 3.5);
+      ctx.globalAlpha = shimmer;
+      ctx.strokeStyle = COLORS.gold;
+      ctx.lineWidth = 1.2;
+      ctx.strokeRect(g.x - h, g.y - h, h * 2, h * 2);
+      this.noGlow();
       ctx.fillStyle = COLORS.goldLight;
-      ctx.beginPath();
-      ctx.moveTo(x, y + h * 2);
-      ctx.lineTo(x, y);
-      ctx.lineTo(x + h * 2, y);
-      ctx.closePath();
-      ctx.fill();
-      ctx.fillStyle = COLORS.gold;
-      ctx.fillRect(x + b, y + b, h * 2 - 2 * b, h * 2 - 2 * b);
+      ctx.fillRect(g.x - 1.4, g.y - 1.4, 2.8, 2.8);
+      ctx.globalAlpha = 1;
     }
     if (debug) {
       ctx.strokeStyle = COLORS.debug;
@@ -359,38 +434,47 @@ export class Renderer {
   }
 
   /**
-   * Mines: armed ones are spiky and dark with a red core; safe toggle mines
-   * are a hollow ring; arming ones glow amber.
+   * Mines: armed ones are spiky, with a red neon edge and a pulsing core;
+   * safe toggle mines are a faint ring; arming ones glow amber.
    */
-  private drawMines(ctx: CanvasRenderingContext2D, mines: readonly Mine[], debug: boolean): void {
-    const pulse = 0.75 + 0.25 * Math.sin(performance.now() / 180);
+  private drawMines(ctx: CanvasRenderingContext2D, mines: readonly Mine[], debug: boolean, now: number): void {
+    const pulse = 0.7 + 0.3 * Math.sin(now / 160);
     for (const m of mines) {
+      if (!this.onScreen(m.x, m.y, 12)) continue;
       if (m.state === MineState.Safe) {
-        ctx.strokeStyle = COLORS.mine;
-        ctx.globalAlpha = 0.7;
-        ctx.lineWidth = 1.4;
+        ctx.strokeStyle = COLORS.mineGlow;
+        ctx.globalAlpha = 0.45;
+        ctx.lineWidth = 0.9;
         ctx.beginPath();
         ctx.arc(m.x, m.y, 3.4, 0, Math.PI * 2);
         ctx.stroke();
         ctx.globalAlpha = 1;
         continue;
       }
-      ctx.fillStyle = COLORS.mine;
+      const armed = m.state === MineState.Armed;
+      const color = armed ? COLORS.mineGlow : COLORS.mineArming;
+      radialGlow(ctx, m.x, m.y, 12, color, armed ? 0.3 * pulse : 0.4);
       ctx.beginPath();
       const spikes = 8;
       for (let i = 0; i < spikes * 2; i++) {
-        const a = (i * Math.PI) / spikes;
-        const r = i % 2 ? 3.2 : 5.6;
+        const a = (i * Math.PI) / spikes + now / 2000;
+        const r = i % 2 ? 3 : 5.6;
         if (i) ctx.lineTo(m.x + Math.cos(a) * r, m.y + Math.sin(a) * r);
-        else ctx.moveTo(m.x + r, m.y);
+        else ctx.moveTo(m.x + Math.cos(a) * r, m.y + Math.sin(a) * r);
       }
       ctx.closePath();
+      ctx.fillStyle = COLORS.mine;
       ctx.fill();
-      ctx.fillStyle = m.state === MineState.Armed ? COLORS.mineCore : COLORS.mineArming;
-      ctx.globalAlpha = m.state === MineState.Armed ? pulse : 1;
+      this.glow(color, 3);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 0.8;
+      ctx.stroke();
+      ctx.fillStyle = armed ? COLORS.mineCore : COLORS.mineArming;
+      ctx.globalAlpha = armed ? pulse : 1;
       ctx.beginPath();
-      ctx.arc(m.x, m.y, 1.8, 0, Math.PI * 2);
+      ctx.arc(m.x, m.y, 1.7, 0, Math.PI * 2);
       ctx.fill();
+      this.noGlow();
       ctx.globalAlpha = 1;
     }
     if (debug) {
@@ -406,19 +490,17 @@ export class Renderer {
   }
 
   /**
-   * Bursts: gold pickups (a ring and four glints, plus the time they added),
-   * the key (a blue ring), the exit (big light rings) and mine blasts (red).
+   * Bursts of light: gold pickups (a ring and four glints, plus the time
+   * they added), the key, the exit (big rings) and mine blasts.
    */
   private drawSparkles(ctx: CanvasRenderingContext2D, sparkles: readonly Sparkle[]): void {
+    ctx.globalCompositeOperation = 'lighter';
     for (const s of sparkles) {
       const t = Math.min(1, s.age / SPARKLE_FRAMES);
       const ease = 1 - (1 - t) * (1 - t);
       if (s.kind === 'blast') {
+        radialGlow(ctx, s.x, s.y, 8 + ease * 26, COLORS.blast, 0.9 * (1 - t));
         ctx.globalAlpha = 1 - t;
-        ctx.fillStyle = COLORS.blast;
-        ctx.beginPath();
-        ctx.arc(s.x, s.y, 3 + ease * 14, 0, Math.PI * 2);
-        ctx.fill();
         ctx.strokeStyle = COLORS.mineArming;
         ctx.lineWidth = 1.5 * (1 - t) + 0.3;
         ctx.beginPath();
@@ -427,6 +509,7 @@ export class Renderer {
       } else if (s.kind === 'exit') {
         const te = s.age / sparkleLife(s);
         const e = 1 - (1 - te) * (1 - te);
+        radialGlow(ctx, s.x, s.y, 20 + e * 50, COLORS.doorGlow, 0.6 * (1 - te));
         ctx.globalAlpha = 1 - te;
         ctx.strokeStyle = COLORS.doorGlow;
         for (let i = 0; i < 2; i++) {
@@ -439,42 +522,55 @@ export class Renderer {
       } else {
         // Gold or key.
         const key = s.kind === 'key';
+        const color = key ? COLORS.key : COLORS.gold;
+        radialGlow(ctx, s.x, s.y, 6 + ease * (key ? 22 : 14), color, 0.5 * (1 - t));
         ctx.globalAlpha = 1 - t;
-        ctx.strokeStyle = key ? COLORS.key : COLORS.gold;
+        ctx.strokeStyle = color;
         ctx.lineWidth = 1.2 * (1 - t) + 0.3;
         ctx.beginPath();
         ctx.arc(s.x, s.y, 4 + ease * (key ? 18 : 9), 0, Math.PI * 2);
         ctx.stroke();
         if (t < 1) glints(ctx, s.x, s.y, 4, 3 + ease * (key ? 20 : 13), 1.6 * (1 - t) + 0.4, key ? COLORS.keyLight : COLORS.goldLight);
       }
-      if (s.label) {
-        const tl = s.age / sparkleLife(s);
-        ctx.globalAlpha = Math.min(1, 3 * (1 - tl));
-        ctx.font = '600 8px system-ui, -apple-system, sans-serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        const ly = s.y - 9 - (1 - (1 - tl) * (1 - tl)) * 14;
-        ctx.lineWidth = 2;
-        ctx.strokeStyle = COLORS.background;
-        ctx.strokeText(s.label, s.x, ly);
-        ctx.fillStyle = COLORS.goldDark;
-        ctx.fillText(s.label, s.x, ly);
-      }
+      ctx.globalAlpha = 1;
+    }
+    ctx.globalCompositeOperation = 'source-over';
+    for (const s of sparkles) {
+      if (!s.label) continue;
+      const tl = s.age / sparkleLife(s);
+      ctx.globalAlpha = Math.min(1, 3 * (1 - tl));
+      ctx.font = '700 8px system-ui, -apple-system, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      const ly = s.y - 9 - (1 - (1 - tl) * (1 - tl)) * 14;
+      this.glow(COLORS.gold, 3);
+      ctx.fillStyle = COLORS.goldLight;
+      ctx.fillText(s.label, s.x, ly);
+      this.noGlow();
     }
     ctx.globalAlpha = 1;
   }
 
+  /**
+   * The ninja: a dark silhouette with a cool rim light, and a hot-pink neon
+   * headband whose tails stream behind.
+   */
   private drawNinja(ctx: CanvasRenderingContext2D, n: NinjaView): void {
-    // Scarf is simulated in world space.
+    // The tails are simulated in world space.
     const scarf = n.scarf;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
     if (scarf.length > 1) {
-      ctx.strokeStyle = COLORS.scarf;
-      ctx.lineWidth = 1.4;
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
       ctx.beginPath();
       ctx.moveTo(scarf[0][0], scarf[0][1]);
       for (let i = 1; i < scarf.length; i++) ctx.lineTo(scarf[i][0], scarf[i][1]);
+      this.glow(COLORS.scarf, 5);
+      ctx.strokeStyle = COLORS.scarf;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      this.noGlow();
+      ctx.strokeStyle = COLORS.scarfCore;
+      ctx.lineWidth = 0.5;
       ctx.stroke();
     }
 
@@ -483,10 +579,9 @@ export class Renderer {
     ctx.rotate(n.tilt);
     ctx.scale(n.facing, 1);
     const p = n.pose;
+    this.glow(COLORS.ninjaGlow, 3);
     ctx.strokeStyle = COLORS.ninja;
     ctx.fillStyle = COLORS.ninja;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
     ctx.lineWidth = 1.9;
     ctx.beginPath();
     polyline(ctx, [p.footA, p.kneeA, p.hip, p.kneeB, p.footB]);
@@ -496,6 +591,19 @@ export class Renderer {
     ctx.beginPath();
     ctx.arc(p.head[0], p.head[1], 3.1, 0, Math.PI * 2);
     ctx.fill();
+    // The headband, round the forehead.
+    const [hx, hy] = p.head;
+    ctx.beginPath();
+    ctx.moveTo(hx - 3.2, hy - 0.5);
+    ctx.lineTo(hx + 3.2, hy - 1.3);
+    this.glow(COLORS.scarf, 4);
+    ctx.strokeStyle = COLORS.scarf;
+    ctx.lineWidth = 1.4;
+    ctx.stroke();
+    this.noGlow();
+    ctx.strokeStyle = COLORS.scarfCore;
+    ctx.lineWidth = 0.45;
+    ctx.stroke();
     ctx.restore();
   }
 }
@@ -511,6 +619,34 @@ export function poseToWorld(p: P, x: number, y: number, tilt: number, facing: nu
   const c = Math.cos(tilt);
   const s = Math.sin(tilt);
   return [x + lx * c - p[1] * s, y + lx * s + p[1] * c];
+}
+
+/** Rows of tiles per band of platform paths. */
+const CHUNK_ROWS = 6;
+/** Window lights inside platforms (dim, translucent). */
+const WINDOW_LIGHTS = ['rgba(255, 191, 110, 0.26)', 'rgba(143, 216, 255, 0.24)', 'rgba(255, 143, 216, 0.24)', 'rgba(180, 168, 255, 0.26)'];
+
+/** Platform paths for a band of rows (world px y0 to y1). */
+interface Chunk {
+  y0: number;
+  y1: number;
+  solid: Path2D;
+  outline: Path2D;
+  seams: Path2D;
+  /** One path per colour in WINDOW_LIGHTS. */
+  windows: Path2D[];
+}
+
+/** A soft round glow (drawn with a radial gradient: cheaper than a shadow blur). */
+function radialGlow(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, color: string, alpha: number): void {
+  if (alpha <= 0) return;
+  const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+  g.addColorStop(0, color);
+  g.addColorStop(1, 'transparent');
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = g;
+  ctx.fillRect(x - r, y - r, r * 2, r * 2);
+  ctx.globalAlpha = 1;
 }
 
 /** Little diamond glints in a ring. */

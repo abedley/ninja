@@ -11,6 +11,12 @@ avoiding the mines. Pick up the key on the way to open the exit door at the
 top, and get there before the clock runs out. As in N, each piece of gold adds
 two seconds. Fall too far and you die.
 
+It's set at midnight in a neon city. The platforms are dark blocks edged with
+neon light, the ninja's headband glows hot pink, and gold, mines, the key and
+the door each glow in their own colour. Behind the level, a skyline in three
+parallax layers (generated from a fixed seed in `src/game/cityscape.ts`)
+sinks away below as the ninja climbs.
+
 Physics so far: running, skidding, jumping (with variable height), slope jumps,
 wall sliding, wall jumps, every N/N++ tile shape, fall-impact death, gold,
 mines and the exit door and its switch (the key).
@@ -137,7 +143,7 @@ route into the test.
 src/physics/   deterministic simulation: tiles -> segments, collision, ninja state machine
 src/level/     ASCII level format (legend in level.ts) and levels.json
 src/game/      game loop (fixed 60 Hz), one-button auto-runner, input, camera and
-               renderer, animation, death debris
+               renderer (neon style), parallax city backdrop, animation, death debris
 tools/golden/  reference-trace generator (needs an nclone checkout)
 tools/solver/  search bot that proves levels can be beaten with one button
 tests/         golden physics tests, level, Tower/auto-runner and debris tests

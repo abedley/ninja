@@ -1,10 +1,25 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <rect width="64" height="64" rx="12" fill="#cbcbd2"/>
-  <path d="M0 50h64v14H0z" fill="#7c7d8c"/>
-  <g fill="none" stroke="#111114" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M30 20l-3 14M27 34l-7 7 1 9M27 34l8 6 7 2"/>
-    <path d="M22 22l7-1 9 5M29 21l-7 8"/>
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#05030f"/>
+      <stop offset="1" stop-color="#3a1052"/>
+    </linearGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="1.6" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect width="64" height="64" rx="12" fill="url(#sky)"/>
+  <circle cx="48" cy="13" r="6" fill="#e9e0ff"/>
+  <path d="M0 64V40h6v-6h7v12h6V30h8v34zM40 64V36h7v-8h6v8h11v28z" fill="#140d33"/>
+  <path d="M0 50h64v14H0z" fill="#110e2a"/>
+  <path d="M0 50h64" stroke="#25d4ff" stroke-width="1.6" filter="url(#glow)"/>
+  <g id="ninja" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M30 20l-3 14M27 34l-7 7 1 9M27 34l8 6 7 2M22 22l7-1 9 5M29 21l-7 8"/>
+    <circle cx="32" cy="14" r="3.7"/>
   </g>
-  <circle cx="32" cy="14" r="5.5" fill="#111114"/>
-  <path d="M28 13l-8-2-6 3" fill="none" stroke="#b3262f" stroke-width="2.4" stroke-linecap="round"/>
+  <use href="#ninja" stroke="#5fe6ff" stroke-width="5.6" opacity="0.55" filter="url(#glow)"/>
+  <use href="#ninja" stroke="#06040e" stroke-width="3.6"/>
+  <circle cx="32" cy="14" r="5.5" fill="#06040e"/>
+  <path d="M27 13l10-1.5M28 13l-8-2-6 3" fill="none" stroke="#ff2bd6" stroke-width="2.2" stroke-linecap="round" filter="url(#glow)"/>
 </svg>

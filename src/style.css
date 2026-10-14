@@ -1,12 +1,17 @@
 :root {
-  --letterbox: #a9aab3;
-  --ink: #111114;
-  --control-bg: rgba(17, 17, 20, 0.12);
-  --control-bg-active: rgba(17, 17, 20, 0.3);
-  --gold: #dcaa2e;
-  --gold-light: #f6dc86;
-  --gold-dark: #a3761a;
-  --key: #2b8fd6;
+  --letterbox: #07051a;
+  --ink: #e6f6ff;
+  --neon: #25d4ff;
+  --neon-light: #c9f6ff;
+  --pink: #ff2bd6;
+  --danger: #ff2d55;
+  --control-bg: rgba(16, 12, 42, 0.62);
+  --control-bg-active: rgba(48, 30, 110, 0.8);
+  --control-border: rgba(37, 212, 255, 0.35);
+  --gold: #ffd23f;
+  --gold-light: #fff2b8;
+  --gold-dark: #c88a12;
+  --key: #9dff4a;
   --safe-l: env(safe-area-inset-left, 0px);
   --safe-r: env(safe-area-inset-right, 0px);
   --safe-b: env(safe-area-inset-bottom, 0px);
@@ -56,10 +61,11 @@ body {
   width: 40px;
   height: 40px;
   padding: 8px;
-  border: 0;
+  border: 1px solid var(--control-border);
   border-radius: 10px;
   background: var(--control-bg);
-  color: var(--ink);
+  box-shadow: 0 0 10px rgba(37, 212, 255, 0.12);
+  color: var(--neon-light);
   cursor: pointer;
   touch-action: manipulation;
 }
@@ -72,6 +78,7 @@ body {
 .hud-btn svg {
   width: 100%;
   height: 100%;
+  filter: drop-shadow(0 0 3px var(--neon));
   fill: none;
   stroke: currentColor;
   stroke-width: 2.4;
@@ -93,10 +100,11 @@ body {
   width: 40px;
   height: 40px;
   padding: 8px;
+  border: 1px solid rgba(157, 255, 74, 0.25);
   border-radius: 10px;
   background: var(--control-bg);
-  color: var(--ink);
-  opacity: 0.45;
+  color: var(--key);
+  opacity: 0.4;
 }
 
 #key-indicator[hidden] {
@@ -106,6 +114,7 @@ body {
 #key-indicator svg {
   width: 100%;
   height: 100%;
+  filter: drop-shadow(0 0 3px var(--key));
   fill: none;
   stroke: currentColor;
   stroke-width: 2.4;
@@ -115,8 +124,9 @@ body {
 
 /* Collected: the door is open. */
 #key-indicator.got {
-  background: var(--key);
-  color: #fff;
+  border-color: var(--key);
+  background: rgba(157, 255, 74, 0.16);
+  box-shadow: 0 0 14px rgba(157, 255, 74, 0.45);
   opacity: 1;
   animation: gold-bump 260ms ease-out;
 }
@@ -127,9 +137,11 @@ body {
   gap: 8px;
   height: 40px;
   padding: 0 14px 0 12px;
+  border: 1px solid rgba(255, 210, 63, 0.3);
   border-radius: 10px;
   background: var(--control-bg);
-  color: var(--ink);
+  color: var(--gold-light);
+  text-shadow: 0 0 8px rgba(255, 210, 63, 0.7);
   font-size: 16px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
@@ -137,13 +149,14 @@ body {
 }
 
 .gold-icon {
-  width: 14px;
-  height: 14px;
-  background: var(--gold);
-  /* Same bevel as the in-game gold: lit top-left edge, dark bottom-right. */
+  /* The in-game gold: a neon square with a bright core. */
+  width: 13px;
+  height: 13px;
+  border: 2px solid var(--gold);
+  background: radial-gradient(var(--gold-light) 0 2px, rgba(255, 210, 63, 0.2) 2.5px);
   box-shadow:
-    inset 2px 2px 0 var(--gold-light),
-    inset -2px -2px 0 var(--gold-dark);
+    0 0 7px var(--gold),
+    inset 0 0 3px rgba(255, 210, 63, 0.6);
 }
 
 #gold-counter[hidden] {
@@ -151,14 +164,9 @@ body {
 }
 
 #gold-counter.complete {
-  background: var(--gold);
-}
-
-#gold-counter.complete .gold-icon {
-  box-shadow:
-    inset 2px 2px 0 var(--gold-light),
-    inset -2px -2px 0 var(--gold-dark),
-    0 0 0 1.5px var(--ink);
+  border-color: var(--gold);
+  background: rgba(255, 210, 63, 0.18);
+  box-shadow: 0 0 14px rgba(255, 210, 63, 0.45);
 }
 
 #gold-counter.bump {
@@ -190,25 +198,29 @@ body {
 #timer-track {
   flex: 1;
   height: 8px;
-  border-radius: 4px;
+  padding: 1px;
+  border: 1px solid var(--control-border);
+  border-radius: 5px;
   background: var(--control-bg);
-  overflow: hidden;
 }
 
 #timer-fill {
   height: 100%;
   width: 100%;
-  border-radius: 4px;
-  background: var(--ink);
+  border-radius: 3px;
+  background: linear-gradient(90deg, var(--neon), var(--neon-light));
+  box-shadow: 0 0 8px var(--neon);
   transform-origin: left;
 }
 
 #timer-text {
   min-width: 3.2em;
   padding: 2px 8px;
+  border: 1px solid var(--control-border);
   border-radius: 8px;
   background: var(--control-bg);
-  color: var(--ink);
+  color: var(--neon-light);
+  text-shadow: 0 0 8px var(--neon);
   font-size: 15px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
@@ -216,11 +228,14 @@ body {
 }
 
 #timer.low #timer-fill {
-  background: #c8202f;
+  background: var(--danger);
+  box-shadow: 0 0 10px var(--danger);
 }
 
 #timer.low #timer-text {
-  color: #b01825;
+  border-color: var(--danger);
+  color: #ffd0da;
+  text-shadow: 0 0 8px var(--danger);
 }
 
 #timer.bonus #timer-text {
@@ -230,7 +245,9 @@ body {
 @keyframes timer-bonus {
   30% {
     transform: scale(1.15);
-    background: var(--gold);
+    border-color: var(--gold);
+    color: var(--gold-light);
+    text-shadow: 0 0 10px var(--gold);
   }
 }
 
@@ -240,9 +257,12 @@ body {
   bottom: calc(18% + var(--safe-b));
   transform: translateX(-50%);
   padding: 10px 18px;
+  border: 1px solid rgba(255, 43, 214, 0.55);
   border-radius: 999px;
-  background: rgba(17, 17, 20, 0.72);
-  color: #f2f2f5;
+  background: rgba(10, 6, 30, 0.8);
+  box-shadow: 0 0 18px rgba(255, 43, 214, 0.3);
+  color: var(--ink);
+  text-shadow: 0 0 6px rgba(201, 246, 255, 0.5);
   font-size: 16px;
   line-height: 1.45;
   text-align: center;
@@ -265,6 +285,11 @@ body {
   display: block;
   font-size: 24px;
   margin-bottom: 4px;
+  color: #ffe1f7;
+  letter-spacing: 0.04em;
+  text-shadow:
+    0 0 6px var(--pink),
+    0 0 18px var(--pink);
 }
 
 @keyframes pulse {
