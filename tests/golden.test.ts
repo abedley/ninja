@@ -69,6 +69,7 @@ describe('frame-exact physics vs nclone', () => {
         rows: scenario.rows,
         mines: scenario.mines as [number, number][],
         toggleMines: scenario.toggleMines as [number, number][],
+        exit: scenario.exit ? { door: scenario.exit[0] as [number, number], key: scenario.exit[1] as [number, number] } : undefined,
       });
       const gold = scenario.goldField ? [...level.gold, ...goldField()] : level.gold;
       const sim = new Simulator(level.map, level.spawnX, level.spawnY, { ...level, gold });
@@ -79,6 +80,8 @@ describe('frame-exact physics vs nclone', () => {
       const goldAt = new Map(scenario.gold.map(([frame, total]) => [frame, total]));
       let goldTotal = 0;
       const checkpoints = new Map(scenario.checkpoints.map((c) => [c[0], c]));
+      // Frames the key was collected and the ninja won (null if never).
+      const [keyFrame, winFrame] = (scenario.exitLog as (number | null)[] | undefined) ?? [null, null];
       for (let i = 0; i < scenario.inputs.length; i++) {
         const [hor, jump] = decodeInput(scenario.inputs[i]);
         sim.tick(hor, jump);
@@ -99,6 +102,13 @@ describe('frame-exact physics vs nclone', () => {
         while (mineLogPos < scenario.mineLog.length && scenario.mineLog[mineLogPos][0] === sim.frame) {
           const [, index, state] = scenario.mineLog[mineLogPos++];
           mineStates[index] = state;
+        }
+        const keyExpected = keyFrame !== null && sim.frame >= keyFrame;
+        if (sim.key && !sim.key.active !== keyExpected) {
+          throw new Error(`Key diverged at frame ${sim.frame}: collected ${!sim.key.active}, expected on frame ${keyFrame}`);
+        }
+        if (sim.won !== (winFrame !== null && sim.frame >= winFrame)) {
+          throw new Error(`Exit diverged at frame ${sim.frame}: won ${sim.won}, expected on frame ${winFrame}`);
         }
         sim.mines.forEach((m, j) => {
           if (m.state !== mineStates[j]) {

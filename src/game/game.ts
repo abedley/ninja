@@ -1,18 +1,20 @@
 import { parseLevel, type Level, type LevelDef } from '../level/level';
 import { NINJA, NinjaState } from '../physics/ninja';
-import { Simulator, TICK_RATE } from '../physics/simulator';
+import { GOLD_TIME_BONUS, Simulator, TICK_RATE } from '../physics/simulator';
 import { AnimState, NinjaAnimator, type P, type Pose } from './animator';
 import { AutoRunner } from './autoRunner';
 import { Debris } from './debris';
 import type { Input } from './input';
 import { poseToWorld, type Camera, type Renderer } from './renderer';
-import { SPARKLE_FRAMES, type Sparkle } from './sparkles';
+import { sparkleLife, type Sparkle } from './sparkles';
 
 const STEP_MS = 1000 / TICK_RATE;
 /** Don't try to catch up more than this many frames after a stall. */
 const MAX_STEPS_PER_FRAME = 5;
-/** Frames after death before a jump press restarts. */
+/** Frames after death (or reaching the exit) before a jump press restarts. */
 const RESTART_DELAY = 20;
+/** After reaching the exit, the restart waits a little longer so the moment isn't skipped by accident. */
+const WIN_RESTART_DELAY = 45;
 const SCARF_LINKS = 5;
 const SCARF_LINK_LEN = 2.6;
 /** The camera leads the ninja by this much (px) in the running direction... */
@@ -29,6 +31,8 @@ export const enum Phase {
   Ready,
   Playing,
   Dead,
+  /** Reached the open exit door. */
+  Won,
 }
 
 const STATE_NAMES = ['Immobile', 'Running', 'Sliding', 'Jumping', 'Falling', 'WallSliding', 'Dead', 'Dying', 'Celebrating', 'Disabled'];
@@ -39,7 +43,8 @@ export class Game {
   private readonly animator = new NinjaAnimator();
   private runner!: AutoRunner;
   private debris: Debris | null = null;
-  private deadFrames = 0;
+  /** Frames since dying or winning. */
+  private endFrames = 0;
   private jumpWasHeld = false;
   /** Ignore jump until it is released (after the tap that started or restarted play). */
   private jumpNeedsRelease = false;
@@ -91,7 +96,7 @@ export class Game {
     this.sparkles = [];
     this.animator.reset();
     this.debris = null;
-    this.deadFrames = 0;
+    this.endFrames = 0;
     this.prevX = x;
     this.prevY = y;
     this.snapCamera();
@@ -134,11 +139,18 @@ export class Game {
     this.prevCam.y = this.cam.y;
 
     if (this.phase === Phase.Dead) {
-      this.deadFrames++;
+      this.endFrames++;
       this.debris?.step();
       // A tap after death respawns and starts running straight away.
-      if (pressed && this.deadFrames > RESTART_DELAY) this.begin();
+      if (pressed && this.endFrames > RESTART_DELAY) this.begin();
       return;
+    }
+    if (this.phase === Phase.Won) {
+      this.endFrames++;
+      if (pressed && this.endFrames > WIN_RESTART_DELAY) {
+        this.begin();
+        return;
+      }
     }
     if (this.phase === Phase.Ready && pressed) this.begin();
 
@@ -149,18 +161,27 @@ export class Game {
     const ninja = this.sim.ninja;
     this.prevX = ninja.xpos;
     this.prevY = ninja.ypos;
+    const key = this.sim.key;
+    const keyWasThere = key?.active;
     if (this.phase === Phase.Playing) {
       this.sim.tick(this.runner.input(ninja, jump && !ninja.jumpInputOld), jump);
       this.runner.update(ninja);
     } else {
-      // Waiting for the first tap: let the ninja settle at the spawn point.
+      // Waiting for the first tap (let the ninja settle at the spawn point), or celebrating.
       this.sim.tick(0, false);
     }
     this.animator.update(ninja);
     this.followCamera();
     this.stepScarf();
-    for (const g of this.sim.goldThisTick) this.sparkles.push({ x: g.x, y: g.y, age: 0, kind: 'gold' });
+    const label = this.timed ? `+${GOLD_TIME_BONUS / TICK_RATE}` : undefined;
+    for (const g of this.sim.goldThisTick) this.sparkles.push({ x: g.x, y: g.y, age: 0, kind: 'gold', label });
+    if (key && keyWasThere && !key.active) this.sparkles.push({ x: key.x, y: key.y, age: 0, kind: 'key' });
 
+    if (this.phase === Phase.Playing && this.sim.won) {
+      this.phase = Phase.Won;
+      const door = this.sim.door!;
+      this.sparkles.push({ x: door.x, y: door.y, age: 0, kind: 'exit' });
+    }
     // (Re-read the state: tick() may have changed it.)
     if (this.isDead) {
       this.phase = Phase.Dead;
@@ -172,9 +193,11 @@ export class Game {
 
   /** Start running (from the spawn point, respawning first after a death). */
   private begin(): void {
-    if (this.phase === Phase.Dead) this.restart();
+    if (this.phase === Phase.Dead || this.phase === Phase.Won) this.restart();
     this.phase = Phase.Playing;
     this.jumpNeedsRelease = true;
+    // The clock starts with the first tap.
+    if (this.level.time !== undefined) this.sim.timeLeft = this.level.time * TICK_RATE;
   }
 
   private cameraTarget(): Camera {
@@ -241,7 +264,7 @@ export class Game {
   private stepSparkles(): void {
     if (!this.sparkles.length) return;
     for (const s of this.sparkles) s.age++;
-    this.sparkles = this.sparkles.filter((s) => s.age < SPARKLE_FRAMES);
+    this.sparkles = this.sparkles.filter((s) => s.age < sparkleLife(s));
   }
 
   private explode(): void {
@@ -271,6 +294,7 @@ export class Game {
       cam,
       this.sim.gold,
       this.sim.mines,
+      { door: this.sim.door, key: this.sim.key },
       this.sparkles,
       alive ? { x, y, tilt: this.animator.tilt, facing: this.animator.facing, pose, scarf: this.scarf } : null,
       this.debris,
@@ -291,12 +315,44 @@ export class Game {
       `input   ${n.horInput} ${n.jumpInput ? 'jump' : ''}`,
       `gold    ${this.goldCollected}/${this.goldTotal}`,
     ];
+    if (this.sim.key) lines.push(`exit    ${this.sim.won ? 'reached' : this.sim.door!.open ? 'open' : 'shut'}`);
+    if (this.timed) lines.push(`time    ${this.timeLeft.toFixed(2)} s`);
     if (this.animator.state === AnimState.Run) lines.push(`run     ${this.animator.runCycle}`);
     return lines;
   }
 
   get isDead(): boolean {
     return this.sim.ninja.state === NinjaState.Dead;
+  }
+
+  /** Whether the level has a clock. */
+  get timed(): boolean {
+    return this.level.time !== undefined;
+  }
+
+  /** Seconds left (the level's full time until the first tap). */
+  get timeLeft(): number {
+    const t = this.sim.timeLeft;
+    return t === Infinity ? (this.level.time ?? Infinity) : t / TICK_RATE;
+  }
+
+  /** The level's starting time, in seconds. */
+  get timeLimit(): number {
+    return this.level.time ?? Infinity;
+  }
+
+  /** Whether the level has an exit door (and key). */
+  get hasExit(): boolean {
+    return this.sim.door !== null;
+  }
+
+  /** Whether the key has been collected (so the door is open). */
+  get hasKey(): boolean {
+    return this.sim.door?.open ?? false;
+  }
+
+  get timedOut(): boolean {
+    return this.sim.timedOut;
   }
 
   get goldCollected(): number {

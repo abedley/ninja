@@ -11,6 +11,8 @@ export const enum AnimState {
   Skid = 2,
   Air = 3,
   WallSlide = 4,
+  /** Reached the exit: arms up. */
+  Celebrate = 5,
 }
 
 const RUN_CYCLE_LENGTH = 432;
@@ -51,6 +53,7 @@ export class NinjaAnimator {
         if (n.horInput) this.facing = n.horInput;
       }
       if (n.state === NinjaState.GroundSliding) this.state = AnimState.Skid;
+      if (n.state === NinjaState.Celebrating) this.state = AnimState.Celebrate;
     } else {
       this.state = AnimState.Air;
       if (n.state === NinjaState.Jumping) this.tilt = 0;
@@ -91,6 +94,8 @@ export class NinjaAnimator {
         return airPose(this.airRate);
       case AnimState.WallSlide:
         return wallPose(this.stateFrames);
+      case AnimState.Celebrate:
+        return celebratePose(this.stateFrames);
       default:
         return idlePose(this.stateFrames);
     }
@@ -141,6 +146,18 @@ function idlePose(frames: number): Pose {
     elbowB: [-1.4, -3 + breathe], handB: [-1.2, 0.4 + breathe],
     kneeA, footA, kneeB, footB,
   };
+}
+
+function celebratePose(frames: number): Pose {
+  // Both arms thrown up in a V, waving a little.
+  const wave = Math.sin(frames * 0.25) * 0.25;
+  const hip: P = [0, 0];
+  const neck: P = [0, -6.9];
+  const [kneeA, footA] = leg(hip, 0.3, 0.25);
+  const [kneeB, footB] = leg(hip, -0.3, -0.25);
+  const [elbowA, handA] = arm(neck, Math.PI - 0.6 + wave, Math.PI - 0.3 + wave);
+  const [elbowB, handB] = arm(neck, -(Math.PI - 0.6) + wave, -(Math.PI - 0.3) + wave);
+  return { head: [0, -10.2], neck, hip, elbowA, handA, elbowB, handB, kneeA, footA, kneeB, footB };
 }
 
 function runPose(phase: number): Pose {

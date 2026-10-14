@@ -4,7 +4,8 @@ nclone (https://github.com/SimonV42/nclone) is the community's reverse-engineere
 N++ physics, used to validate real N++ replays. This script runs scripted and
 pseudo-random inputs through it and records, for every frame, a hash of the
 ninja's exact state (position, speed, state), plus the frames on which gold is
-collected and on which mines change state. tests/golden.test.ts replays the same inputs through our engine and
+collected, on which mines change state and on which the key and exit door are
+reached. tests/golden.test.ts replays the same inputs through our engine and
 requires bit-identical results.
 
 One adjustment is made to nclone when loading it: `x**2` is evaluated as `x*x`.
@@ -79,11 +80,12 @@ def gold_field():
 ENTITY_TYPES = {'$': 2, '*': 1, '%': 21}  # gold, mine, toggle mine
 
 
-def to_map_data(rows, extra_gold=(), mines=(), toggle_mines=()):
-    """Build an N++ map data array (tiles, ninja spawn, gold, mines) from an ASCII level.
+def to_map_data(rows, extra_gold=(), mines=(), toggle_mines=(), exit=None):
+    """Build an N++ map data array (tiles, ninja spawn, gold, mines, exit) from an ASCII level.
 
     Extra entities are (x, y) in 6px units. Entities of one type are loaded (and
-    so updated) in this order: those in the rows, then the extra ones.
+    so updated) in this order: those in the rows, then the extra ones. `exit` is
+    ((door x, door y), (key x, key y)).
     """
     assert len(rows) == 23 and all(len(r) == 42 for r in rows)
     data = [0] * 1235
@@ -110,6 +112,11 @@ def to_map_data(rows, extra_gold=(), mines=(), toggle_mines=()):
     for t, coords in entities.items():
         for ex, ey in coords:
             data += [t, ex, ey, 0, 0]
+    if exit:
+        # Exit doors come first, then their switches in the same order (one entry each).
+        (dx, dy), (kx, ky) = exit
+        data[1156] = 1
+        data += [3, dx, dy, 0, 0, 4, kx, ky, 0, 0]
     return data
 
 
@@ -167,37 +174,49 @@ def state_hash(n):
     return '%08x' % h
 
 
-def graze_mines(Simulator, rows, inputs):
-    """Grid points sorted by how close the ninja passes, from a mine-free run.
+def touch_positions(Simulator, rows, inputs):
+    """The ninja's position, frame by frame, where entities test it, from an entity-free run.
 
-    Returns {(x, y): (closest distance, first frame within 15px)} in 6px units,
-    for points the ninja passes within 15px of.
+    Entities touch the ninja where it is before think(), which can move it (jumps).
+    Stops when the ninja dies.
     """
     sim = Simulator()
     sim.load(to_map_data(rows))
-    # Entities touch the ninja where it is before think(), which can move it (jumps).
     n = sim.ninja
     seen = []
     think = n.think
     n.think = lambda: (seen.append((n.xpos, n.ypos)), think())
-    near = {}
     for hor, jump in inputs:
         sim.tick(hor, int(jump))
         if n.state >= 6:
             break
-        nx, ny = seen[-1]
+    return seen[:len(seen) - (n.state >= 6)]
+
+
+def graze_mines(Simulator, rows, inputs, reach=15):
+    """Grid points sorted by how close the ninja passes, from a mine-free run.
+
+    Returns {(x, y): (closest distance, first frame within reach)} in 6px units,
+    for points the ninja passes within `reach` px of.
+    """
+    near = {}
+    cells = math.ceil(reach / 6)
+    for frame, (nx, ny) in enumerate(touch_positions(Simulator, rows, inputs), 1):
         gx, gy = nx / 6, ny / 6
-        for x in range(int(gx) - 3, int(gx) + 4):
-            for y in range(int(gy) - 3, int(gy) + 4):
+        for x in range(int(gx) - cells, int(gx) + cells + 1):
+            for y in range(int(gy) - cells, int(gy) + cells + 1):
                 d = math.sqrt((x * 6 - nx) ** 2 + (y * 6 - ny) ** 2)
-                if d < 15 and (x, y) not in near or d < near.get((x, y), (99,))[0]:
-                    near[(x, y)] = (d, near.get((x, y), (0, sim.frame))[1])
+                if d < reach and (x, y) not in near or d < near.get((x, y), (99,))[0]:
+                    near[(x, y)] = (d, near.get((x, y), (0, frame))[1])
     return near
 
 
-def run(Simulator, rows, inputs, extra_gold=(), mines=(), toggle_mines=()):
+def run(Simulator, rows, inputs, extra_gold=(), mines=(), toggle_mines=(), exit=None):
     sim = Simulator()
-    sim.load(to_map_data(rows, extra_gold, mines, toggle_mines))
+    sim.load(to_map_data(rows, extra_gold, mines, toggle_mines, exit))
+    # nclone files the exit switch under its door's type (3), after the door.
+    key = sim.entity_dic[3][1] if exit else None
+    exit_log = [None, None]  # frames the key was collected and the ninja won
     all_mines = sim.entity_dic[1] + sim.entity_dic[21]
     mine_states = [m.state for m in all_mines]
     hashes = []
@@ -210,6 +229,10 @@ def run(Simulator, rows, inputs, extra_gold=(), mines=(), toggle_mines=()):
         hashes.append(state_hash(n))
         if sim.gold_collected != (gold[-1][1] if gold else 0):
             gold.append([sim.frame, sim.gold_collected])
+        if key and not key.active and exit_log[0] is None:
+            exit_log[0] = sim.frame
+        if n.state == 8 and exit_log[1] is None:
+            exit_log[1] = sim.frame
         for i, m in enumerate(all_mines):
             if m.state != mine_states[i]:
                 mine_states[i] = m.state
@@ -218,7 +241,87 @@ def run(Simulator, rows, inputs, extra_gold=(), mines=(), toggle_mines=()):
             checkpoints.append([sim.frame, n.xpos, n.ypos, n.xspeed, n.yspeed, n.state])
         if n.state == 6:
             break
-    return hashes, checkpoints, gold, mine_log
+    return hashes, checkpoints, gold, mine_log, exit_log
+
+
+def outcome(Simulator, rows, inputs, mines=(), exit=None, frames=None):
+    """(frame, state) of the first win or death, or None."""
+    sim = Simulator()
+    sim.load(to_map_data(rows, (), mines, (), exit))
+    for hor, jump in inputs[:frames]:
+        sim.tick(hor, int(jump))
+        if sim.ninja.state in (6, 8):
+            return sim.frame, sim.ninja.state
+    return None
+
+
+def exit_scenarios(Simulator):
+    """The exit door and key, placed relative to the ninja's path in an entity-free run."""
+    out = []
+    for i, (x, y) in enumerate([(1, 21), (20, 21), (28, 21), (14, 6)]):
+        rows = with_spawn(PLAYGROUND, x, y)
+        inputs = random_inputs(9000 + i, 1800, right_bias=0.05)
+        path = touch_positions(Simulator, rows, inputs)
+        at = lambda f: (round(path[f][0] / 6), round(path[f][1] / 6))
+        # Key early on, door later.
+        key, door = at(len(path) // 5), at(len(path) * 3 // 5)
+        out.append((f'exit: key then door #{i}', rows, inputs, False, [], [], (door, key)))
+        # Door first: it is still shut when the ninja passes it.
+        out.append((f'exit: door before key #{i}', rows, inputs, False, [], [], (key, door)))
+        # Key and door in one spot: the door opens on one frame and can be entered on the next.
+        out.append((f'exit: door on the key #{i}', rows, inputs, False, [], [], (key, key)))
+        # Gold everywhere, so the frame the ninja wins checks the order gold and the door are tested in.
+        out.append((f'exit: gold field #{i}', rows, inputs, True, [], [], (door, key)))
+        # Doors the ninja only just touches, or only just misses (ninja 10 + door 12 = 22 px).
+        near = graze_mines(Simulator, rows, inputs, reach=23)
+        after_key = len(path) // 5 + 1
+        def edge(points, reach):
+            """The point passed closest inside reach, and the one passed closest outside it."""
+            inside = max((p for p in points if near[p][0] < reach), key=lambda p: near[p][0], default=None)
+            outside = min((p for p in points if near[p][0] >= reach), key=lambda p: near[p][0], default=None)
+            return [p for p in (inside, outside) if p]
+        for p in edge([p for p, (d, f) in near.items() if f > after_key], 22):
+            out.append((f'exit: door at distance {near[p][0]:.5f} #{i}', rows, inputs, False, [], [], (p, key)))
+        # Keys at the edge (ninja 10 + key 6 = 16 px), with the door on the key so it is entered on the next frame.
+        for p in edge(list(near), 16):
+            out.append((f'exit: key at distance {near[p][0]:.5f} #{i}', rows, inputs, False, [], [], (p, p)))
+    # A mine and the open door touched on the same frame: whichever N++ tests
+    # first decides between winning and dying.
+    found = {}
+    for i, (x, y) in enumerate([(1, 21), (20, 21), (28, 21), (14, 6), (27, 16), (36, 13)]):
+        rows = with_spawn(PLAYGROUND, x, y)
+        inputs = random_inputs(9500 + i, 1800, right_bias=0.05)
+        path = touch_positions(Simulator, rows, inputs)
+        # First frame (1-based) from `start` on which the path is within `reach` of grid point p.
+        def first(p, reach, start=1):
+            return next((f for f in range(start, len(path) + 1)
+                         if math.dist(path[f - 1], (p[0] * 6, p[1] * 6)) < reach), None)
+        for f in range(30, len(path) - 5, 23):
+            p = (round(path[f][0] / 6), round(path[f][1] / 6))
+            key_frame = first(p, 16)
+            win_frame = key_frame and first(p, 22, key_frame + 1)
+            if not win_frame:
+                continue
+            for dx in range(-3, 4):
+                for dy in range(-3, 4):
+                    m = (p[0] + dx, p[1] + dy)
+                    if first(m, 14) != win_frame:
+                        continue
+                    exit = (p, p)
+                    # Check that each alone happens on that frame in nclone, then see which wins.
+                    if outcome(Simulator, rows, inputs, exit=exit, frames=win_frame) != (win_frame, 8):
+                        continue
+                    if outcome(Simulator, rows, inputs, mines=[m], frames=win_frame) != (win_frame, 6):
+                        continue
+                    both = outcome(Simulator, rows, inputs, mines=[m], exit=exit, frames=win_frame)
+                    found.setdefault('wins' if both[1] == 8 else 'dies', (rows, inputs, m, exit))
+            if len(found) == 2:
+                break
+        if len(found) == 2:
+            break
+    for kind, (rows, inputs, m, exit) in sorted(found.items()):
+        out.append((f'exit: mine and door on the same frame ({kind})', rows, inputs, False, [m], [], exit))
+    return out
 
 
 class SquareAsMultiply(ast.NodeTransformer):
@@ -313,6 +416,7 @@ def main():
         hits = sorted((p for p, (d, _) in near.items() if d < 14), key=lambda p: -near[p][0])
         for j, p in enumerate(hits[:2]):
             scenarios.append((f'mines: graze #{i}.{j} (distance {near[p][0]:.5f})', rows, inputs, False, [p], []))
+    scenarios += exit_scenarios(Simulator)
 
     fixture = {
         'source': 'nclone @ 842190b2a216579b5b5c551e0a0b4505fc3381cc',
@@ -326,7 +430,8 @@ def main():
     for name, rows, inputs, *extra in scenarios:
         field = bool(extra and extra[0])
         mines, toggles = (extra[1], extra[2]) if len(extra) > 1 else ([], [])
-        hashes, checkpoints, gold, mine_log = run(Simulator, rows, inputs, gold_field() if field else (), mines, toggles)
+        exit = extra[3] if len(extra) > 3 else None
+        hashes, checkpoints, gold, mine_log, exit_log = run(Simulator, rows, inputs, gold_field() if field else (), mines, toggles, exit)
         fixture['scenarios'].append({
             'name': name,
             'rows': rows,
@@ -338,9 +443,10 @@ def main():
             'checkpoints': checkpoints,
             'gold': gold,
             'mineLog': mine_log,
+            **({'exit': [list(exit[0]), list(exit[1])], 'exitLog': exit_log} if exit else {}),
         })
         print(f'{name}: {len(hashes)} frames, final state {checkpoints[-1][5]}, gold {gold[-1][1] if gold else 0}, '
-              f'mine changes {len(mine_log)}')
+              f'mine changes {len(mine_log)}' + (f', key/win frames {exit_log}' if exit else ''))
 
     with open(out_path, 'w') as f:
         json.dump(fixture, f, separators=(',', ':'))

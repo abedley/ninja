@@ -1,14 +1,15 @@
 import { AutoRunner } from '../../src/game/autoRunner';
 import type { MineState } from '../../src/physics/mine';
 import { Ninja, NinjaState } from '../../src/physics/ninja';
-import { Simulator } from '../../src/physics/simulator';
+import { Simulator, TICK_RATE, type Point } from '../../src/physics/simulator';
 import type { Level } from '../../src/level/level';
 
 /**
- * A search bot for one-button levels: a beam search over jump presses that
- * finds a way to get the ninja up to `goalY` and survive the landing. It
- * proves that a level can be completed with the one-button controls; the
- * plans it finds are replayed by tests/tower.test.ts.
+ * A search bot for one-button levels: a beam search over jump presses. With
+ * no goal height it finds a way to collect the key and reach the exit door;
+ * given one, a way to get the ninja up to that height and survive the
+ * landing. It proves that a level can be completed with the one-button
+ * controls; the plans it finds are replayed by tests/tower.test.ts.
  *
  * A plan is a list of presses, each [frames released before it, frames held].
  * Play starts (the ninja starts running) after 20 frames of settling.
@@ -20,29 +21,50 @@ interface Node {
   dir: -1 | 1;
   /** Toggle mines remember being touched, so their states are part of the search state. */
   mines: MineState[];
+  hasKey: boolean;
   frame: number;
+  /** Closest the ninja has come to its current target. */
+  bestDist: number;
   bestY: number;
   plan: Plan;
 }
 
 const GAPS = [1, 4, 8, 13, 19, 26, 35, 46, 60, 80];
 const HOLDS = [3, 9, 16, 25, 35, 46];
+/** Frames to settle at the spawn point before play starts. */
+export const SETTLE_FRAMES = 20;
 
 function cloneNinja(n: Ninja): Ninja {
   return Object.assign(Object.create(Ninja.prototype) as Ninja, n);
 }
 
 /** Run `frames` frames from a node's state; returns false if the ninja died. */
-function advance(node: Node, frames: number, held: boolean, firstPressed: boolean, sim: Simulator, runner: AutoRunner): boolean {
+function advance(node: Node, frames: number, held: boolean, firstPressed: boolean, sim: Simulator, runner: AutoRunner, target: () => Point | null): boolean {
   for (let i = 0; i < frames; i++) {
     const n = sim.ninja;
     sim.tick(runner.input(n, held && i === 0 && firstPressed), held);
     runner.update(n);
     node.frame++;
     if (n.ypos < node.bestY) node.bestY = n.ypos;
-    if (n.state >= NinjaState.Dead || n.state === NinjaState.AwaitingDeath) return false;
+    if (n.state >= NinjaState.Dead || n.state === NinjaState.AwaitingDeath) return n.state === NinjaState.Celebrating;
+    if (sim.key && !sim.key.active && !node.hasKey) {
+      // Got the key: now head for the door.
+      node.hasKey = true;
+      node.bestDist = Infinity;
+    }
+    const t = target();
+    if (t) node.bestDist = Math.min(node.bestDist, distance(n, t));
   }
   return true;
+}
+
+/**
+ * How far the ninja is from a target. Levels are climbed, often zigzagging,
+ * so sideways distance only counts once the ninja is near the target's height.
+ */
+function distance(n: Ninja, t: Point): number {
+  const dy = Math.abs(n.ypos - t.y);
+  return dy + Math.max(0, 1 - dy / 72) * 0.5 * Math.abs(n.xpos - t.x);
 }
 
 export interface SolveResult {
@@ -51,16 +73,25 @@ export interface SolveResult {
   bestY: number;
 }
 
-export function solve(level: Level, goalY: number, opts: { beam?: number; maxPresses?: number } = {}): SolveResult {
+export function solve(level: Level, opts: { goalY?: number; beam?: number; maxPresses?: number } = {}): SolveResult {
   const beamWidth = opts.beam ?? 80;
   const maxPresses = opts.maxPresses ?? 200;
-  const sim = new Simulator(level.map, level.spawnX, level.spawnY, { mines: level.mines, toggleMines: level.toggleMines });
-  const loadMines = (states: MineState[]) => sim.mines.forEach((m, i) => (m.state = states[i]));
+  const goalY = opts.goalY;
+  const sim = new Simulator(level.map, level.spawnX, level.spawnY, level);
+  const { key, door } = sim;
+  if (goalY === undefined && !(key && door)) throw new Error('The level has no exit, so a goal height is needed');
+  const loadState = (node: Node) => {
+    sim.ninja = node.ninja;
+    sim.mines.forEach((m, i) => (m.state = node.mines[i]));
+    if (key) key.active = !node.hasKey;
+    if (door) door.open = node.hasKey;
+  };
   const saveMines = () => sim.mines.map((m) => m.state);
-  // Settle at the spawn point before the first press.
-  for (let i = 0; i < 20; i++) sim.tick(0, false);
-  let beam: Node[] = [{ ninja: cloneNinja(sim.ninja), dir: 1, mines: saveMines(), frame: 0, bestY: sim.ninja.ypos, plan: [] }];
+  for (let i = 0; i < SETTLE_FRAMES; i++) sim.tick(0, false);
+  let beam: Node[] = [{ ninja: cloneNinja(sim.ninja), dir: 1, mines: saveMines(), hasKey: false, frame: 0, bestDist: Infinity, bestY: sim.ninja.ypos, plan: [] }];
   let bestY = sim.ninja.ypos;
+  const targetOf = (node: Node): Point | null => (goalY !== undefined ? null : node.hasKey ? door : key);
+  const goalReached = (node: Node) => (goalY === undefined ? node.ninja.state === NinjaState.Celebrating : node.bestY <= goalY);
 
   for (let depth = 0; depth < maxPresses && beam.length; depth++) {
     const next = new Map<string, Node>();
@@ -68,42 +99,58 @@ export function solve(level: Level, goalY: number, opts: { beam?: number; maxPre
       for (const gap of GAPS) {
         for (const hold of HOLDS) {
           const child: Node = { ...node, ninja: cloneNinja(node.ninja), plan: [...node.plan, [gap, hold]] };
-          sim.ninja = child.ninja;
-          loadMines(node.mines);
+          loadState(child);
+          const target = () => targetOf(child);
           const runner = new AutoRunner(child.ninja, child.dir);
-          if (!advance(child, gap, false, false, sim, runner)) continue;
-          if (!advance(child, hold, true, true, sim, runner)) continue;
+          if (!advance(child, gap, false, false, sim, runner, target)) continue;
+          if (child.ninja.state !== NinjaState.Celebrating && !advance(child, hold, true, true, sim, runner, target)) continue;
           child.dir = runner.dir;
           child.mines = saveMines();
           bestY = Math.min(bestY, child.bestY);
-          if (child.bestY <= goalY) {
+          if (goalReached(child)) {
+            if (goalY === undefined) return { plan: child.plan, bestY };
             // Make sure the ninja survives the landing.
             const check = { ...child, ninja: cloneNinja(child.ninja), mines: [...child.mines] };
             sim.ninja = check.ninja;
-            if (advance(check, 150, false, false, sim, runner)) return { plan: child.plan, bestY };
+            if (advance(check, 150, false, false, sim, runner, () => null)) return { plan: child.plan, bestY };
             continue;
           }
           const n = child.ninja;
-          const key = `${Math.round(n.xpos / 8)},${Math.round(n.ypos / 8)},${child.dir},${n.airborn ? 1 : 0},${Math.round(n.yspeed)},${child.mines.join('')}`;
-          const prev = next.get(key);
-          if (!prev || score(child) < score(prev)) next.set(key, child);
+          const k = `${Math.round(n.xpos / 8)},${Math.round(n.ypos / 8)},${child.dir},${n.airborn ? 1 : 0},${Math.round(n.yspeed)},${child.hasKey ? 1 : 0},${child.mines.join('')}`;
+          const prev = next.get(k);
+          if (!prev || score(child, targetOf(child)) < score(prev, targetOf(prev))) next.set(k, child);
         }
       }
     }
-    beam = [...next.values()].sort((a, b) => score(a) - score(b)).slice(0, beamWidth);
+    beam = [...next.values()]
+      .map((node) => ({ node, s: score(node, targetOf(node)) }))
+      .sort((a, b) => a.s - b.s)
+      .slice(0, beamWidth)
+      .map(({ node }) => node);
   }
   return { plan: null, bestY };
 }
 
-/** Lower is better: mostly current height, with credit for the best height so far. */
-function score(n: Node): number {
-  return n.ninja.ypos * 0.7 + n.bestY * 0.3 + n.frame * 0.01;
+/**
+ * Lower is better. Climbing to a height: mostly current height, with credit
+ * for the best height so far. Going for the key, then the door: the same, by
+ * distance to the target, and any node with the key beats any without.
+ */
+function score(node: Node, target: Point | null): number {
+  const n = node.ninja;
+  if (!target) return n.ypos * 0.7 + node.bestY * 0.3 + node.frame * 0.01;
+  return distance(n, target) * 0.7 + node.bestDist * 0.3 + node.frame * 0.01 + (node.hasKey ? 0 : 1e6);
 }
 
-/** Replay a plan from the spawn; returns the simulator after it, plus a final 150 idle frames. */
+/**
+ * Replay a plan from the spawn, as the game plays it (the clock starts with
+ * the first press of play); returns the simulator after it, plus a final 150
+ * idle frames.
+ */
 export function replay(level: Level, plan: Plan, onFrame?: (sim: Simulator) => void): Simulator {
   const sim = new Simulator(level.map, level.spawnX, level.spawnY, level);
-  for (let i = 0; i < 20; i++) sim.tick(0, false);
+  for (let i = 0; i < SETTLE_FRAMES; i++) sim.tick(0, false);
+  if (level.time !== undefined) sim.timeLeft = level.time * TICK_RATE;
   const runner = new AutoRunner(sim.ninja);
   const step = (held: boolean, pressed: boolean) => {
     sim.tick(runner.input(sim.ninja, pressed), held);

@@ -1,3 +1,4 @@
+import { EXIT_DOOR_RADIUS, EXIT_KEY_RADIUS, type ExitDoor, type ExitKey } from '../physics/exit';
 import { CircularSegment, LinearSegment } from '../physics/geometry';
 import { GOLD_RADIUS, type Gold } from '../physics/gold';
 import { MineState, type Mine } from '../physics/mine';
@@ -5,7 +6,7 @@ import { TILE_SIZE } from '../physics/tileDefs';
 import type { TileMap } from '../physics/tileMap';
 import type { Pose, P } from './animator';
 import type { Debris } from './debris';
-import { SPARKLE_FRAMES, type Sparkle } from './sparkles';
+import { SPARKLE_FRAMES, sparkleLife, type Sparkle } from './sparkles';
 import { TILE_POLYS } from './tileShapes';
 
 export const COLORS = {
@@ -22,6 +23,13 @@ export const COLORS = {
   mineCore: '#e0283c',
   mineArming: '#f0a020',
   blast: '#e0283c',
+  key: '#2b8fd6',
+  keyLight: '#a6d8fa',
+  keyDark: '#1b5e93',
+  doorFrame: '#2a2a31',
+  doorShut: '#585a6b',
+  doorOpen: '#fbf6dc',
+  doorGlow: '#ffe98a',
   debug: '#d0204a',
 };
 
@@ -43,6 +51,11 @@ export interface NinjaView {
   scarf: readonly P[];
 }
 
+export interface ExitView {
+  door: ExitDoor | null;
+  key: ExitKey | null;
+}
+
 export interface Camera {
   x: number;
   y: number;
@@ -61,6 +74,8 @@ export class Renderer {
   private viewY = 0;
   private cssW = 0;
   private cssH = 0;
+  /** Height (CSS px) of the HUD over the top of the screen: the top of a level can scroll down below it. */
+  topInset = 0;
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     const ctx = canvas.getContext('2d', { alpha: false });
@@ -101,7 +116,7 @@ export class Renderer {
     const map = this.map;
     if (!map || !this.cssW) return;
     cam.x = clampAxis(cam.x, this.viewW, map.width * TILE_SIZE);
-    cam.y = clampAxis(cam.y, this.viewH, map.height * TILE_SIZE);
+    cam.y = clampAxis(cam.y, this.viewH, map.height * TILE_SIZE, this.topInset / this.scale);
   }
 
   screenToWorld(sx: number, sy: number): [number, number] {
@@ -144,6 +159,7 @@ export class Renderer {
     cam: Camera,
     gold: readonly Gold[],
     mines: readonly Mine[],
+    exit: ExitView,
     sparkles: readonly Sparkle[],
     ninja: NinjaView | null,
     debris: Debris | null,
@@ -174,6 +190,7 @@ export class Renderer {
     ctx.lineCap = 'round';
     ctx.stroke(this.outline);
 
+    this.drawExit(ctx, exit, debugCircle !== null);
     this.drawGold(ctx, gold, debugCircle !== null);
     this.drawMines(ctx, mines, debugCircle !== null);
     this.drawSparkles(ctx, sparkles);
@@ -201,6 +218,109 @@ export class Renderer {
         ctx.fillText(line, x, y);
         y += 16;
       }
+    }
+  }
+
+  /**
+   * The exit door fills its tile: shut, it is a dark panel with a keyhole;
+   * open, it glows. The key floats and bobs, with a soft halo so it stands out.
+   */
+  private drawExit(ctx: CanvasRenderingContext2D, exit: ExitView, debug: boolean): void {
+    const { door, key } = exit;
+    const now = performance.now();
+    if (door) {
+      const w = 9;
+      const h = 12;
+      const x = door.x;
+      const y = door.y;
+      if (door.open) {
+        const glow = 0.35 + 0.15 * Math.sin(now / 220);
+        ctx.fillStyle = COLORS.doorGlow;
+        ctx.globalAlpha = glow;
+        ctx.beginPath();
+        ctx.ellipse(x, y, w + 7, h + 6, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+      ctx.fillStyle = COLORS.doorFrame;
+      ctx.fillRect(x - w - 1.5, y - h - 1.5, (w + 1.5) * 2, h * 2 + 1.5);
+      ctx.fillStyle = door.open ? COLORS.doorOpen : COLORS.doorShut;
+      ctx.fillRect(x - w, y - h, w * 2, h * 2);
+      if (door.open) {
+        // The door leaf, swung inwards.
+        ctx.fillStyle = COLORS.doorShut;
+        ctx.beginPath();
+        ctx.moveTo(x - w, y - h);
+        ctx.lineTo(x - w + 5, y - h + 3);
+        ctx.lineTo(x - w + 5, y + h - 1.5);
+        ctx.lineTo(x - w, y + h);
+        ctx.closePath();
+        ctx.fill();
+      } else {
+        // Keyhole, in the key's colour.
+        ctx.fillStyle = COLORS.key;
+        ctx.beginPath();
+        ctx.arc(x, y - 1.5, 2, 0, Math.PI * 2);
+        ctx.moveTo(x - 1, y - 1);
+        ctx.lineTo(x + 1, y - 1);
+        ctx.lineTo(x + 1.6, y + 3.5);
+        ctx.lineTo(x - 1.6, y + 3.5);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+    if (key?.active) {
+      const x = key.x;
+      const y = key.y + Math.sin(now / 300) * 1.2;
+      ctx.fillStyle = COLORS.keyLight;
+      ctx.globalAlpha = 0.35 + 0.15 * Math.sin(now / 300);
+      ctx.beginPath();
+      ctx.arc(x, y, 9, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(-Math.PI / 4);
+      ctx.scale(1.25, 1.25);
+      ctx.strokeStyle = COLORS.keyDark;
+      ctx.fillStyle = COLORS.key;
+      ctx.lineWidth = 0.8;
+      ctx.lineJoin = 'round';
+      // Bow (the ring), shaft and two teeth.
+      ctx.beginPath();
+      ctx.arc(-3, 0, 2.6, 0, Math.PI * 2);
+      ctx.moveTo(-0.6, -0.9);
+      ctx.lineTo(5.4, -0.9);
+      ctx.lineTo(5.4, 2.6);
+      ctx.lineTo(4, 2.6);
+      ctx.lineTo(4, 0.9);
+      ctx.lineTo(2.8, 0.9);
+      ctx.lineTo(2.8, 2.2);
+      ctx.lineTo(1.6, 2.2);
+      ctx.lineTo(1.6, 0.9);
+      ctx.lineTo(-0.6, 0.9);
+      ctx.closePath();
+      ctx.fill('evenodd');
+      ctx.stroke();
+      ctx.fillStyle = COLORS.background;
+      ctx.beginPath();
+      ctx.arc(-3, 0, 1, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+    if (debug) {
+      ctx.strokeStyle = COLORS.debug;
+      ctx.lineWidth = 0.5;
+      ctx.beginPath();
+      if (door) {
+        ctx.moveTo(door.x + EXIT_DOOR_RADIUS, door.y);
+        ctx.arc(door.x, door.y, EXIT_DOOR_RADIUS, 0, Math.PI * 2);
+      }
+      if (key?.active) {
+        ctx.moveTo(key.x + EXIT_KEY_RADIUS, key.y);
+        ctx.arc(key.x, key.y, EXIT_KEY_RADIUS, 0, Math.PI * 2);
+      }
+      ctx.stroke();
     }
   }
 
@@ -285,12 +405,15 @@ export class Renderer {
     }
   }
 
-  /** Bursts: gold pickups (a ring and four glints) and mine blasts (a bigger red ring). */
+  /**
+   * Bursts: gold pickups (a ring and four glints, plus the time they added),
+   * the key (a blue ring), the exit (big light rings) and mine blasts (red).
+   */
   private drawSparkles(ctx: CanvasRenderingContext2D, sparkles: readonly Sparkle[]): void {
     for (const s of sparkles) {
-      const t = s.age / SPARKLE_FRAMES;
+      const t = Math.min(1, s.age / SPARKLE_FRAMES);
+      const ease = 1 - (1 - t) * (1 - t);
       if (s.kind === 'blast') {
-        const ease = 1 - (1 - t) * (1 - t);
         ctx.globalAlpha = 1 - t;
         ctx.fillStyle = COLORS.blast;
         ctx.beginPath();
@@ -301,29 +424,41 @@ export class Renderer {
         ctx.beginPath();
         ctx.arc(s.x, s.y, 5 + ease * 22, 0, Math.PI * 2);
         ctx.stroke();
-        continue;
-      }
-      const ease = 1 - (1 - t) * (1 - t);
-      ctx.globalAlpha = 1 - t;
-      ctx.strokeStyle = COLORS.gold;
-      ctx.lineWidth = 1.2 * (1 - t) + 0.3;
-      ctx.beginPath();
-      ctx.arc(s.x, s.y, 4 + ease * 9, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.fillStyle = COLORS.goldLight;
-      const d = 3 + ease * 13;
-      const r = 1.6 * (1 - t) + 0.4;
-      for (let i = 0; i < 4; i++) {
-        const a = Math.PI / 4 + (i * Math.PI) / 2;
-        const gx = s.x + Math.cos(a) * d;
-        const gy = s.y + Math.sin(a) * d;
+      } else if (s.kind === 'exit') {
+        const te = s.age / sparkleLife(s);
+        const e = 1 - (1 - te) * (1 - te);
+        ctx.globalAlpha = 1 - te;
+        ctx.strokeStyle = COLORS.doorGlow;
+        for (let i = 0; i < 2; i++) {
+          ctx.lineWidth = 2.5 * (1 - te) + 0.4;
+          ctx.beginPath();
+          ctx.arc(s.x, s.y, 10 + e * (40 + i * 25), 0, Math.PI * 2);
+          ctx.stroke();
+        }
+        glints(ctx, s.x, s.y, 8, 12 + e * 40, 2.2 * (1 - te) + 0.5, COLORS.doorOpen);
+      } else {
+        // Gold or key.
+        const key = s.kind === 'key';
+        ctx.globalAlpha = 1 - t;
+        ctx.strokeStyle = key ? COLORS.key : COLORS.gold;
+        ctx.lineWidth = 1.2 * (1 - t) + 0.3;
         ctx.beginPath();
-        ctx.moveTo(gx, gy - r * 1.6);
-        ctx.lineTo(gx + r, gy);
-        ctx.lineTo(gx, gy + r * 1.6);
-        ctx.lineTo(gx - r, gy);
-        ctx.closePath();
-        ctx.fill();
+        ctx.arc(s.x, s.y, 4 + ease * (key ? 18 : 9), 0, Math.PI * 2);
+        ctx.stroke();
+        if (t < 1) glints(ctx, s.x, s.y, 4, 3 + ease * (key ? 20 : 13), 1.6 * (1 - t) + 0.4, key ? COLORS.keyLight : COLORS.goldLight);
+      }
+      if (s.label) {
+        const tl = s.age / sparkleLife(s);
+        ctx.globalAlpha = Math.min(1, 3 * (1 - tl));
+        ctx.font = '600 8px system-ui, -apple-system, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        const ly = s.y - 9 - (1 - (1 - tl) * (1 - tl)) * 14;
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = COLORS.background;
+        ctx.strokeText(s.label, s.x, ly);
+        ctx.fillStyle = COLORS.goldDark;
+        ctx.fillText(s.label, s.x, ly);
       }
     }
     ctx.globalAlpha = 1;
@@ -378,8 +513,26 @@ export function poseToWorld(p: P, x: number, y: number, tilt: number, facing: nu
   return [x + lx * c - p[1] * s, y + lx * s + p[1] * c];
 }
 
-function clampAxis(c: number, view: number, size: number): number {
+/** Little diamond glints in a ring. */
+function glints(ctx: CanvasRenderingContext2D, x: number, y: number, count: number, dist: number, r: number, color: string): void {
+  ctx.fillStyle = color;
+  for (let i = 0; i < count; i++) {
+    const a = Math.PI / 4 + (i * Math.PI * 2) / count;
+    const gx = x + Math.cos(a) * dist;
+    const gy = y + Math.sin(a) * dist;
+    ctx.beginPath();
+    ctx.moveTo(gx, gy - r * 1.6);
+    ctx.lineTo(gx + r, gy);
+    ctx.lineTo(gx, gy + r * 1.6);
+    ctx.lineTo(gx - r, gy);
+    ctx.closePath();
+    ctx.fill();
+  }
+}
+
+/** Clamp a camera centre on one axis; `before` is extra world space allowed beyond the start (under the HUD). */
+function clampAxis(c: number, view: number, size: number, before = 0): number {
   const inset = TILE_SIZE - BORDER_VISIBLE;
-  if (view >= size - 2 * inset) return size / 2;
-  return Math.min(Math.max(c, inset + view / 2), size - inset - view / 2);
+  if (view >= size - 2 * inset + before) return size / 2 - before / 2;
+  return Math.min(Math.max(c, inset - before + view / 2), size - inset - view / 2);
 }

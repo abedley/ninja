@@ -452,6 +452,13 @@ export class Ninja {
     }
   }
 
+  /** Touched the open exit door: celebrate (the ninja stops responding to input). */
+  win(): void {
+    if (this.state >= NinjaState.Dead) return;
+    if (this.state === NinjaState.Jumping) this.appliedGravity = NINJA.GRAVITY_FALL;
+    this.state = NinjaState.Celebrating;
+  }
+
   kill(x: number, y: number, xspeed: number, yspeed: number): void {
     if (this.state >= NinjaState.Dead) return;
     this.death = { x, y, xspeed, yspeed };

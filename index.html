@@ -30,8 +30,18 @@
         </button>
       </div>
 
-      <div id="gold-counter" aria-label="Gold collected">
-        <span class="gold-icon" aria-hidden="true"></span><span id="gold-count">0</span>
+      <div id="timer" role="timer" aria-label="Time left" hidden>
+        <div id="timer-track"><div id="timer-fill"></div></div>
+        <span id="timer-text">0.0</span>
+      </div>
+
+      <div id="stats">
+        <div id="key-indicator" aria-label="Key not collected yet" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="7" cy="12" r="4" /><path d="M11 12h10M18 12v4M15 12v3" /></svg>
+        </div>
+        <div id="gold-counter" aria-label="Gold collected">
+          <span class="gold-icon" aria-hidden="true"></span><span id="gold-count">0</span>
+        </div>
       </div>
 
       <div id="message" hidden></div>

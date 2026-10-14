@@ -5,25 +5,29 @@ import { TOWER } from '../src/level/levels';
 import { MineState } from '../src/physics/mine';
 import { NinjaState } from '../src/physics/ninja';
 import { Simulator } from '../src/physics/simulator';
-import { TILE_SIZE } from '../src/physics/tileDefs';
 import { replay, type Plan } from '../tools/solver/solver';
 
 /**
- * A route up the Tower found by tools/solver (one-button presses: [frames
- * released, frames held]). If you change the level, re-run
+ * A route through the Tower found by tools/solver (one-button presses:
+ * [frames released, frames held]): it picks up the key and reaches the exit.
+ * If you change the level, re-run
  *   npx vite-node tools/solver/solve.ts Tower
  * and paste the new plan here.
  */
-const TOWER_ROUTE: Plan = [[80,35],[4,35],[4,35],[1,46],[80,46],[80,46],[60,46],[46,16],[1,46],[26,25],[8,46],[80,16],[26,25],[1,46],[1,25],[8,35],[46,46],[1,46],[1,46],[1,46],[13,25],[35,35],[1,46],[1,46],[1,35],[8,46],[4,3],[1,3],[1,3],[1,3],[46,46],[80,46],[80,35],[19,16],[46,46],[80,16],[35,25],[1,46],[13,46],[19,46],[35,46]];
+const TOWER_ROUTE: Plan = [[80,35],[4,35],[4,35],[1,46],[80,46],[80,46],[60,46],[46,16],[1,46],[26,25],[8,35],[80,16],[46,16],[4,35],[1,46],[46,16],[4,46],[35,46],[1,46],[1,25],[8,35],[1,35],[35,46],[1,46],[1,46],[4,46],[1,46],[80,46],[60,46],[80,46],[80,35],[19,25],[46,46],[26,35],[1,46],[19,35],[26,46],[13,46],[35,46],[1,25]];
 
 describe('Tower', () => {
-  it('can be climbed with one button', () => {
+  it('can be finished with one button, in time', () => {
     const level = parseLevel(TOWER);
-    let highest = Infinity;
-    const sim = replay(level, TOWER_ROUTE, (s) => (highest = Math.min(highest, s.ninja.ypos)));
-    // Reached the finish room (the top three rows) and survived.
-    expect(highest).toBeLessThan(4 * TILE_SIZE);
-    expect(sim.ninja.state).toBeLessThan(NinjaState.Dead);
+    expect(level.time).toBeGreaterThan(0);
+    let keyFrame = 0;
+    const sim = replay(level, TOWER_ROUTE, (s) => {
+      if (!keyFrame && !s.key!.active) keyFrame = s.frame;
+    });
+    expect(keyFrame).toBeGreaterThan(0);
+    expect(sim.won).toBe(true);
+    expect(sim.ninja.state).toBe(NinjaState.Celebrating);
+    expect(sim.timedOut).toBe(false);
   });
 });
 

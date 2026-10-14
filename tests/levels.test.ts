@@ -54,3 +54,68 @@ describe('gold', () => {
     expect(sim.goldCollected).toBe(0);
   });
 });
+
+describe('exit', () => {
+  const corridor = (row: string) => parseLevel({ name: 'x', rows: [row, '#'.repeat(row.length)] });
+
+  it('needs both a door (D) and a key (K)', () => {
+    expect(() => corridor('N...D....')).toThrow(/both an exit door/);
+    expect(() => corridor('N.K.D.D..')).toThrow(/more than one/);
+    expect(corridor('N.K...D..').exit).toEqual({ door: { x: 7 * 24 + 12, y: 36 }, key: { x: 3 * 24 + 12, y: 36 } });
+  });
+
+  it('is shut until the key is collected', () => {
+    const level = corridor('N.D...K..');
+    const sim = new Simulator(level.map, level.spawnX, level.spawnY, level);
+    // Run right past the shut door to the key...
+    for (let i = 0; i < 90; i++) sim.tick(1, false);
+    expect(sim.won).toBe(false);
+    expect(sim.key!.active).toBe(false);
+    expect(sim.door!.open).toBe(true);
+    // ...then back to the door.
+    for (let i = 0; i < 120 && !sim.won; i++) sim.tick(-1, false);
+    expect(sim.won).toBe(true);
+    expect(sim.ninja.state).toBe(NinjaState.Celebrating);
+  });
+
+  it('ends play: the ninja stops responding, collects no more gold and the clock stops', () => {
+    const level = corridor('NKD.$....');
+    const sim = new Simulator(level.map, level.spawnX, level.spawnY, level);
+    sim.timeLeft = 600;
+    for (let i = 0; i < 60 && !sim.won; i++) sim.tick(1, false);
+    expect(sim.won).toBe(true);
+    const timeLeft = sim.timeLeft;
+    for (let i = 0; i < 120; i++) sim.tick(1, true);
+    expect(sim.ninja.state).toBe(NinjaState.Celebrating);
+    expect(sim.ninja.xspeed).toBeCloseTo(0);
+    expect(sim.goldCollected).toBe(0);
+    expect(sim.timeLeft).toBe(timeLeft);
+  });
+});
+
+describe('clock', () => {
+  it('runs one frame per tick, and at zero the ninja dies', () => {
+    const level = parseLevel({ name: 'x', rows: ['N........', '#########'] });
+    const sim = new Simulator(level.map, level.spawnX, level.spawnY, level);
+    for (let i = 0; i < 30; i++) sim.tick(0, false);
+    // Untimed until a time is set.
+    expect(sim.timeLeft).toBe(Infinity);
+    sim.timeLeft = 50;
+    for (let i = 0; i < 49; i++) sim.tick(0, false);
+    expect(sim.timeLeft).toBe(1);
+    expect(sim.ninja.state).toBe(NinjaState.Immobile);
+    sim.tick(0, false);
+    expect(sim.timeLeft).toBe(0);
+    expect(sim.timedOut).toBe(true);
+    expect(sim.ninja.state).toBe(NinjaState.Dead);
+  });
+
+  it('gets two seconds for each piece of gold', () => {
+    const level = parseLevel({ name: 'x', rows: ['N...$$...', '#########'] });
+    const sim = new Simulator(level.map, level.spawnX, level.spawnY, level);
+    sim.timeLeft = 1000;
+    for (let i = 0; i < 90; i++) sim.tick(1, false);
+    expect(sim.goldCollected).toBe(2);
+    expect(sim.timeLeft).toBe(1000 - 90 + 2 * 120);
+  });
+});

@@ -12,6 +12,7 @@ import { TileMap } from '../physics/tileMap';
  *   $  gold, centred in an empty tile
  *   *  mine, centred in an empty tile
  *   %  toggle mine (safe until touched, armed once the ninja moves off it), centred in an empty tile
+ *   D  exit door, and K  its key (N++'s exit switch), each centred in an empty tile (at most one of each)
  *   T R B L   half tile, solid on the Top/Right/Bottom/Left [2-5]
  *   y z       45 degree ceiling, solid top-left / top-right [6, 7]
  *   / \       45 degree floor, rising / falling to the right [8, 9]
@@ -30,6 +31,8 @@ const SPAWN_CHAR = 'N';
 const GOLD_CHAR = '$';
 const MINE_CHAR = '*';
 const TOGGLE_MINE_CHAR = '%';
+const DOOR_CHAR = 'D';
+const KEY_CHAR = 'K';
 /** N++ positions entities on a quarter-tile grid. */
 export const ENTITY_GRID = TILE_SIZE / 4;
 
@@ -45,6 +48,10 @@ export interface LevelDef {
   mines?: [number, number][];
   /** Extra toggle mines, in the same units as `gold`. */
   toggleMines?: [number, number][];
+  /** The exit door and its key, in the same units (instead of D and K in the rows). */
+  exit?: { door: [number, number]; key: [number, number] };
+  /** Seconds on the clock at the start (each gold adds two). Untimed if absent. */
+  time?: number;
 }
 
 export interface Level {
@@ -56,6 +63,9 @@ export interface Level {
   gold: Point[];
   mines: Point[];
   toggleMines: Point[];
+  exit?: { door: Point; key: Point };
+  /** Seconds on the clock at the start, if the level is timed. */
+  time?: number;
 }
 
 export function parseLevel(def: LevelDef): Level {
@@ -69,7 +79,15 @@ export function parseLevel(def: LevelDef): Level {
   const gold: Point[] = [];
   const mines: Point[] = [];
   const toggleMines: Point[] = [];
-  const entityLists: Record<string, Point[]> = { [GOLD_CHAR]: gold, [MINE_CHAR]: mines, [TOGGLE_MINE_CHAR]: toggleMines };
+  const door: Point[] = [];
+  const key: Point[] = [];
+  const entityLists: Record<string, Point[]> = {
+    [GOLD_CHAR]: gold,
+    [MINE_CHAR]: mines,
+    [TOGGLE_MINE_CHAR]: toggleMines,
+    [DOOR_CHAR]: door,
+    [KEY_CHAR]: key,
+  };
 
   for (let y = 0; y < innerH; y++) {
     const row = def.rows[y];
@@ -101,6 +119,12 @@ export function parseLevel(def: LevelDef): Level {
   extra(gold, def.gold);
   extra(mines, def.mines);
   extra(toggleMines, def.toggleMines);
+  if (def.exit) {
+    extra(door, [def.exit.door]);
+    extra(key, [def.exit.key]);
+  }
+  if (door.length > 1 || key.length > 1) throw new Error(`Level "${def.name}" has more than one exit door or key`);
+  if (door.length !== key.length) throw new Error(`Level "${def.name}" needs both an exit door ("${DOOR_CHAR}") and a key ("${KEY_CHAR}")`);
 
   return {
     name: def.name,
@@ -111,5 +135,7 @@ export function parseLevel(def: LevelDef): Level {
     gold,
     mines,
     toggleMines,
+    exit: door.length ? { door: door[0], key: key[0] } : undefined,
+    time: def.time,
   };
 }

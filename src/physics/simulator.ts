@@ -1,10 +1,14 @@
+import { ExitDoor, ExitKey } from './exit';
 import { GOLD_RADIUS, Gold, overlapCircleVsCircle } from './gold';
 import { Mine } from './mine';
 import { NINJA, Ninja, NinjaState, type HorInput } from './ninja';
+import { TILE_SIZE } from './tileDefs';
 import { TileMap } from './tileMap';
 
 /** Simulation runs at a fixed 60 ticks per second, like N++. */
 export const TICK_RATE = 60;
+/** Each piece of gold adds two seconds to the clock, as in N. */
+export const GOLD_TIME_BONUS = 2 * TICK_RATE;
 
 export interface Point {
   x: number;
@@ -17,7 +21,11 @@ export interface Entities {
   mines?: readonly Point[];
   /** Toggle mines: safe until touched, armed once the ninja moves off them. */
   toggleMines?: readonly Point[];
+  /** The exit door and the key (N++'s exit switch) that opens it. */
+  exit?: { door: Point; key: Point };
 }
+
+type Touchable = Gold | Mine | ExitKey | ExitDoor;
 
 export class Simulator {
   readonly map: TileMap;
@@ -31,6 +39,19 @@ export class Simulator {
   readonly mines: Mine[];
   /** The mine that killed the ninja, if one did. */
   killedBy: Mine | null = null;
+  readonly door: ExitDoor | null;
+  readonly key: ExitKey | null;
+  /** True once the ninja has reached the open door. */
+  won = false;
+  /**
+   * Frames left on the clock. It runs while the ninja is alive and not
+   * celebrating, gold adds GOLD_TIME_BONUS, and at zero the ninja dies.
+   * Infinity (the default) means no time limit.
+   */
+  timeLeft = Infinity;
+  timedOut = false;
+  /** Entities the ninja can touch, in the order N++ checks them (see touchOrder()). */
+  private readonly touchables: Touchable[];
 
   constructor(map: TileMap, spawnX: number, spawnY: number, entities: Entities = {}) {
     this.map = map;
@@ -40,6 +61,10 @@ export class Simulator {
       ...(entities.mines ?? []).map((m) => new Mine(m.x, m.y, false)),
       ...(entities.toggleMines ?? []).map((m) => new Mine(m.x, m.y, true)),
     ];
+    const exit = entities.exit;
+    this.door = exit ? new ExitDoor(exit.door.x, exit.door.y) : null;
+    this.key = exit ? new ExitKey(exit.key.x, exit.key.y) : null;
+    this.touchables = touchOrder([...this.gold, ...this.mines, ...(this.key ? [this.key] : []), ...(this.door ? [this.door] : [])]);
   }
 
   /** Advance the simulation by exactly one frame. */
@@ -60,24 +85,63 @@ export class Simulator {
     // N++ runs four collision passes per frame (entities would go in between).
     for (let i = 0; i < 4; i++) ninja.collideVsTiles();
     // Logical (non-physical) entity collisions open N++'s post-collision step.
-    // (Gold and mines don't affect each other, so their order doesn't matter.)
-    this.collectGold();
-    for (const m of this.mines) if (m.logicalCollision(ninja)) this.killedBy ??= m;
+    this.logicalCollisions();
+    this.runClock();
     ninja.postCollision();
     ninja.think();
   }
 
-  private collectGold(): void {
+  private logicalCollisions(): void {
     const n = this.ninja;
-    if (n.state === NinjaState.Celebrating) return;
-    // N++ only tests entities in the 3x3 cells around the ninja; any gold close
-    // enough to touch (10 + 6 px < one 24 px cell) is in there, so test them all.
-    for (const g of this.gold) {
-      if (g.active && overlapCircleVsCircle(g.x, g.y, GOLD_RADIUS, n.xpos, n.ypos, NINJA.RADIUS)) {
-        g.active = false;
-        this.goldCollected++;
-        this.goldThisTick.push(g);
+    // N++ gathers the entities to test before testing them, so a door opened
+    // by the key this frame can't be entered until the next one.
+    const doorOpen = this.door?.open ?? false;
+    for (const e of this.touchables) {
+      if (e instanceof Gold) {
+        if (e.active && n.state !== NinjaState.Celebrating && overlapCircleVsCircle(e.x, e.y, GOLD_RADIUS, n.xpos, n.ypos, NINJA.RADIUS)) {
+          e.active = false;
+          this.goldCollected++;
+          this.goldThisTick.push(e);
+          this.timeLeft += GOLD_TIME_BONUS;
+        }
+      } else if (e instanceof Mine) {
+        if (e.logicalCollision(n)) this.killedBy ??= e;
+      } else if (e instanceof ExitKey) {
+        if (e.active && e.logicalCollision(n)) this.door!.open = true;
+      } else if (doorOpen && e.logicalCollision(n)) {
+        this.won = true;
       }
     }
   }
+
+  /** Not part of N++'s physics (it has no per-level clock), so it can't affect anything above. */
+  private runClock(): void {
+    if (this.ninja.state >= NinjaState.Dead || this.timeLeft === Infinity) return;
+    this.timeLeft--;
+    if (this.timeLeft <= 0) {
+      this.timeLeft = 0;
+      this.timedOut = true;
+      const n = this.ninja;
+      n.kill(n.xpos, n.ypos, n.xspeed * 0.5, n.yspeed * 0.5);
+    }
+  }
+}
+
+/**
+ * N++ tests the entities in the 3x3 grid cells around the ninja, cell by cell
+ * (column by column, top to bottom within a column), each cell's entities in
+ * the order they were added. The exit door is added to its cell when it opens,
+ * so it comes after everything else there. Anything close enough to touch is
+ * in those cells (the largest reach, door + ninja, is 22 px < one cell), so
+ * testing every entity in this order gives the same results.
+ *
+ * Only some orders matter: entering the door stops gold being collected and
+ * mines killing (and the reverse) for the rest of that frame.
+ */
+function touchOrder(list: Touchable[]): Touchable[] {
+  const key = (e: Touchable) => [Math.floor(e.x / TILE_SIZE), Math.floor(e.y / TILE_SIZE), e instanceof ExitDoor ? 1 : 0];
+  return list
+    .map((e, i) => ({ e, i, k: key(e) }))
+    .sort((a, b) => a.k[0] - b.k[0] || a.k[1] - b.k[1] || a.k[2] - b.k[2] || a.i - b.i)
+    .map(({ e }) => e);
 }
