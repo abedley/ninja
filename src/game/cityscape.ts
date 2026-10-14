@@ -1,6 +1,7 @@
 /**
  * The backdrop: a midnight city behind the level, in parallax. A night sky
- * with a moon and stars sits behind three skyline layers, far to near. Each
+ * with a moon and stars sits behind three skyline layers, far to near: dark
+ * buildings with lamplit windows. (No neon: that's kept for the level.) Each
  * layer scrolls with a fraction of the camera's motion, so as the ninja climbs
  * the city sinks away below.
  *
@@ -32,11 +33,6 @@ interface LayerSpec {
   /** Rooftop rim highlight. */
   rim: string;
   window: { w: number; h: number; col: number; row: number; lit: number; alpha: number };
-  /** Neon signs per tile, and rooftop neon strips (chance per building). */
-  signs: number;
-  roofNeon: number;
-  /** Blinking red lights on antennas. */
-  beacons: boolean;
   /** Haze colour drawn over the bottom of the layer, for depth. */
   haze: string;
 }
@@ -46,30 +42,24 @@ const LAYERS: LayerSpec[] = [
     factor: 0.06, xFactor: 0.04, anchor: 0.8, minH: 110, maxH: 330, minW: 22, maxW: 62,
     body: '#1b1440', rim: '#3b2c78',
     window: { w: 2, h: 2, col: 5, row: 7, lit: 0.22, alpha: 0.55 },
-    signs: 0, roofNeon: 0, beacons: true, haze: 'rgba(120, 40, 150, 0.55)',
+    haze: 'rgba(120, 40, 150, 0.55)',
   },
   {
     factor: 0.13, xFactor: 0.1, anchor: 0.93, minH: 200, maxH: 520, minW: 34, maxW: 84,
     body: '#130d2e', rim: '#2c2160',
     window: { w: 3, h: 4, col: 7, row: 9, lit: 0.26, alpha: 0.6 },
-    signs: 3, roofNeon: 0.15, beacons: true, haze: 'rgba(90, 25, 120, 0.5)',
+    haze: 'rgba(90, 25, 120, 0.5)',
   },
   {
     factor: 0.26, xFactor: 0.2, anchor: 1.03, minH: 300, maxH: 800, minW: 60, maxW: 130,
     body: '#09061a', rim: '#221846',
     window: { w: 4, h: 6, col: 10, row: 13, lit: 0.3, alpha: 0.38 },
-    signs: 5, roofNeon: 0.3, beacons: false, haze: 'rgba(60, 15, 90, 0.45)',
+    haze: 'rgba(60, 15, 90, 0.45)',
   },
 ];
 
-const WINDOW_COLORS = ['#ffbf6e', '#ffd9a0', '#8fd8ff', '#b4a8ff', '#ff8fd8'];
-const NEON_COLORS = ['#ff2bd6', '#3ef0ff', '#ff3d6e', '#b36bff', '#ffb52e', '#7cff6b'];
-
-interface Beacon {
-  x: number;
-  y: number;
-  phase: number;
-}
+/** Plain lamplight, warm and cool: the neon is kept for the level in front. */
+const WINDOW_COLORS = ['#e8b878', '#f0d4a4', '#a9c4dc'];
 
 interface Layer {
   spec: LayerSpec;
@@ -77,7 +67,6 @@ interface Layer {
   /** Height of the rooftop canvas, and of the repeating band at its bottom (CSS px). */
   height: number;
   band: number;
-  beacons: Beacon[];
 }
 
 interface Star {
@@ -155,10 +144,10 @@ export class Cityscape {
     ctx.arc(mx, my, 22, 0, Math.PI * 2);
     ctx.fill();
 
-    for (const layer of this.layers) this.drawLayer(ctx, layer, w, h, climb, camX, now);
+    for (const layer of this.layers) this.drawLayer(ctx, layer, w, h, climb, camX);
   }
 
-  private drawLayer(ctx: CanvasRenderingContext2D, layer: Layer, w: number, h: number, climb: number, camX: number, now: number): void {
+  private drawLayer(ctx: CanvasRenderingContext2D, layer: Layer, w: number, h: number, climb: number, camX: number): void {
     const { spec, canvas, height, band } = layer;
     const base = h * spec.anchor + climb * spec.factor;
     const top = base - height;
@@ -170,18 +159,6 @@ export class Cityscape {
       // The buildings carry on down, as a repeating band.
       for (let y = base; y < h; y += band) {
         ctx.drawImage(canvas, 0, (height - band) * res, TILE_W * res, band * res, x, y, TILE_W, band);
-      }
-      for (const b of layer.beacons) {
-        const on = Math.sin(now / 600 + b.phase) > 0.55;
-        if (!on) continue;
-        for (const bx of [x + b.x, x + b.x - TILE_W]) {
-          const by = top + b.y;
-          const g = ctx.createRadialGradient(bx, by, 0, bx, by, 5);
-          g.addColorStop(0, 'rgba(255, 70, 90, 0.95)');
-          g.addColorStop(1, 'rgba(255, 70, 90, 0)');
-          ctx.fillStyle = g;
-          ctx.fillRect(bx - 5, by - 5, 10, 10);
-        }
       }
     }
     // Haze over the lower part of the layer, so it separates from the next one.
@@ -216,25 +193,18 @@ function renderLayer(spec: LayerSpec, rng: () => number, res: number): Layer {
     buildings.push({ x, w, h: spec.minH + t * (spec.maxH - spec.minH), seed: Math.floor(rng() * 2 ** 31) });
     x += w + (rng() < 0.4 ? rng() * 8 : 0);
   }
-  // Neon signs on a few buildings, picked at random.
-  const signs = new Set<number>();
-  for (let i = 0; i < spec.signs; i++) signs.add(Math.floor(rng() * buildings.length));
-  const beacons: Beacon[] = [];
-  buildings.forEach((b, i) => {
+  for (const b of buildings) {
     // Buildings that run past the right edge also draw at the left, so the tile wraps.
     for (const ox of [0, -TILE_W]) {
       if (b.x + ox + b.w < 0) continue;
       // Each copy replays the same random choices.
-      drawBuilding(ctx, spec, b.x + ox, b.w, height - b.h, height, band, mulberry32(b.seed), signs.has(i), ox === 0 ? beacons : null);
+      drawBuilding(ctx, spec, b.x + ox, b.w, height - b.h, height, mulberry32(b.seed));
     }
-  });
-  return { spec, canvas, height, band, beacons };
+  }
+  return { spec, canvas, height, band };
 }
 
-function drawBuilding(
-  ctx: CanvasRenderingContext2D, spec: LayerSpec, x: number, w: number, roof: number, height: number, band: number,
-  r: () => number, sign: boolean, beacons: Beacon[] | null,
-): void {
+function drawBuilding(ctx: CanvasRenderingContext2D, spec: LayerSpec, x: number, w: number, roof: number, height: number, r: () => number): void {
   const win = spec.window;
   ctx.fillStyle = spec.body;
   ctx.fillRect(x, roof, w, height - roof);
@@ -250,7 +220,6 @@ function drawBuilding(
     const ax = x + w * (0.3 + r() * 0.4);
     const ah = 10 + r() * 30;
     ctx.fillRect(ax - 0.75, top - ah, 1.5, ah);
-    beacons?.push({ x: ax, y: top - ah, phase: r() * 6.28 });
   }
   ctx.fillStyle = spec.rim;
   ctx.fillRect(x, roof, w, 1);
@@ -271,33 +240,6 @@ function drawBuilding(
     }
   }
   ctx.globalAlpha = 1;
-
-  // Neon: a glowing strip along the roof, or a vertical sign on the face (kept above the repeating band).
-  const neon = NEON_COLORS[Math.floor(r() * NEON_COLORS.length)];
-  ctx.shadowColor = neon;
-  if (r() < spec.roofNeon) {
-    ctx.shadowBlur = 8;
-    ctx.fillStyle = neon;
-    ctx.fillRect(x + 1, roof + 1, w - 2, 1.5);
-  }
-  if (sign) {
-    const sw = 5 + r() * 5;
-    const sh = 26 + r() * 50;
-    const sx = x + (r() < 0.5 ? 4 : w - sw - 4);
-    const sy = roof + 10 + r() * Math.max(0, height - band - roof - sh - 20);
-    if (sy + sh < height - band) {
-      ctx.shadowBlur = 12;
-      ctx.fillStyle = '#05030c';
-      ctx.fillRect(sx, sy, sw, sh);
-      ctx.strokeStyle = neon;
-      ctx.lineWidth = 1.2;
-      ctx.strokeRect(sx, sy, sw, sh);
-      // Glyph-like bars inside.
-      ctx.fillStyle = neon;
-      for (let gy = sy + 4; gy < sy + sh - 4; gy += 6 + r() * 4) ctx.fillRect(sx + 1.8, gy, sw - 3.6, 1.6 + r() * 1.5);
-    }
-  }
-  ctx.shadowBlur = 0;
 }
 
 function mod(a: number, n: number): number {

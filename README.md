@@ -13,9 +13,10 @@ two seconds. Fall too far and you die.
 
 It's set at midnight in a neon city. The platforms are dark blocks edged with
 neon light, the ninja's headband glows hot pink, and gold, mines, the key and
-the door each glow in their own colour. Behind the level, a skyline in three
-parallax layers (generated from a fixed seed in `src/game/cityscape.ts`)
-sinks away below as the ninja climbs.
+the door each glow in their own colour. Behind the level, a dark skyline with
+lamplit windows, in three parallax layers (generated from a fixed seed in
+`src/game/cityscape.ts`), sinks away below as the ninja climbs; the neon is
+kept for the level itself.
 
 Physics so far: running, skidding, jumping (with variable height), slope jumps,
 wall sliding, wall jumps, every N/N++ tile shape, fall-impact death, gold,
