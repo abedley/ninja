@@ -4,7 +4,7 @@ nclone (https://github.com/SimonV42/nclone) is the community's reverse-engineere
 N++ physics, used to validate real N++ replays. This script runs scripted and
 pseudo-random inputs through it and records, for every frame, a hash of the
 ninja's exact state (position, speed, state), plus the frames on which gold is
-collected. tests/golden.test.ts replays the same inputs through our engine and
+collected and on which mines change state. tests/golden.test.ts replays the same inputs through our engine and
 requires bit-identical results.
 
 One adjustment is made to nclone when loading it: `x**2` is evaluated as `x*x`.
@@ -18,6 +18,7 @@ Usage:
 """
 import ast
 import json
+import math
 import os
 import struct
 import sys
@@ -64,7 +65,7 @@ FLAT = [
 
 def with_spawn(rows, x, y):
     rows = [r.replace('N', '.') for r in rows]
-    assert rows[y][x] in '.$', (x, y, rows[y][x])
+    assert rows[y][x] in '.$*%', (x, y, rows[y][x])
     rows[y] = rows[y][:x] + 'N' + rows[y][x + 1:]
     return rows
 
@@ -74,19 +75,27 @@ def gold_field():
     return [(x, y) for y in range(4, 97) for x in range(4, 173)]
 
 
-def to_map_data(rows, extra_gold=()):
-    """Build an N++ map data array (tiles, ninja spawn, gold) from an ASCII level."""
+# Entity type ids in N++ map data, by level character.
+ENTITY_TYPES = {'$': 2, '*': 1, '%': 21}  # gold, mine, toggle mine
+
+
+def to_map_data(rows, extra_gold=(), mines=(), toggle_mines=()):
+    """Build an N++ map data array (tiles, ninja spawn, gold, mines) from an ASCII level.
+
+    Extra entities are (x, y) in 6px units. Entities of one type are loaded (and
+    so updated) in this order: those in the rows, then the extra ones.
+    """
     assert len(rows) == 23 and all(len(r) == 42 for r in rows)
     data = [0] * 1235
     sx = sy = None
-    gold = []
+    entities = {t: [] for t in ENTITY_TYPES.values()}
     for y, row in enumerate(rows):
         for x, ch in enumerate(row):
             if ch == 'N':
                 sx, sy = x, y
                 tile = 0
-            elif ch == '$':
-                gold.append(((x + 1) * 4 + 2, (y + 1) * 4 + 2))
+            elif ch in ENTITY_TYPES:
+                entities[ENTITY_TYPES[ch]].append(((x + 1) * 4 + 2, (y + 1) * 4 + 2))
                 tile = 0
             else:
                 tile = TILE_LEGEND.index(ch)
@@ -95,9 +104,24 @@ def to_map_data(rows, extra_gold=()):
     data[1230] = 0
     data[1231] = (sx + 1) * 4 + 2
     data[1232] = (sy + 1) * 4 + 2
-    for gx, gy in gold + list(extra_gold):
-        data += [2, gx, gy, 0, 0]
+    entities[2] += extra_gold
+    entities[1] += mines
+    entities[21] += toggle_mines
+    for t, coords in entities.items():
+        for ex, ey in coords:
+            data += [t, ex, ey, 0, 0]
     return data
+
+
+def random_mines(seed, rows, count):
+    """Scatter mines over empty tiles, at random points of the 6px grid."""
+    rng = Lcg(seed)
+    out = []
+    while len(out) < count:
+        x, y = int(rng.next() * 168) + 4, int(rng.next() * 92) + 4
+        if rows[y // 4 - 1][x // 4 - 1] in '.$':
+            out.append((x, y))
+    return out
 
 
 class Lcg:
@@ -143,23 +167,58 @@ def state_hash(n):
     return '%08x' % h
 
 
-def run(Simulator, rows, inputs, extra_gold=()):
+def graze_mines(Simulator, rows, inputs):
+    """Grid points sorted by how close the ninja passes, from a mine-free run.
+
+    Returns {(x, y): (closest distance, first frame within 15px)} in 6px units,
+    for points the ninja passes within 15px of.
+    """
     sim = Simulator()
-    sim.load(to_map_data(rows, extra_gold))
+    sim.load(to_map_data(rows))
+    # Entities touch the ninja where it is before think(), which can move it (jumps).
+    n = sim.ninja
+    seen = []
+    think = n.think
+    n.think = lambda: (seen.append((n.xpos, n.ypos)), think())
+    near = {}
+    for hor, jump in inputs:
+        sim.tick(hor, int(jump))
+        if n.state >= 6:
+            break
+        nx, ny = seen[-1]
+        gx, gy = nx / 6, ny / 6
+        for x in range(int(gx) - 3, int(gx) + 4):
+            for y in range(int(gy) - 3, int(gy) + 4):
+                d = math.sqrt((x * 6 - nx) ** 2 + (y * 6 - ny) ** 2)
+                if d < 15 and (x, y) not in near or d < near.get((x, y), (99,))[0]:
+                    near[(x, y)] = (d, near.get((x, y), (0, sim.frame))[1])
+    return near
+
+
+def run(Simulator, rows, inputs, extra_gold=(), mines=(), toggle_mines=()):
+    sim = Simulator()
+    sim.load(to_map_data(rows, extra_gold, mines, toggle_mines))
+    all_mines = sim.entity_dic[1] + sim.entity_dic[21]
+    mine_states = [m.state for m in all_mines]
     hashes = []
     checkpoints = []
     gold = []  # [frame, total collected] whenever the total changes
+    mine_log = []  # [frame, mine index, new state] for every mine state change
     for hor, jump in inputs:
         sim.tick(hor, int(jump))
         n = sim.ninja
         hashes.append(state_hash(n))
         if sim.gold_collected != (gold[-1][1] if gold else 0):
             gold.append([sim.frame, sim.gold_collected])
+        for i, m in enumerate(all_mines):
+            if m.state != mine_states[i]:
+                mine_states[i] = m.state
+                mine_log.append([sim.frame, i, m.state])
         if sim.frame % 30 == 0 or n.state == 6:
             checkpoints.append([sim.frame, n.xpos, n.ypos, n.xspeed, n.yspeed, n.state])
         if n.state == 6:
             break
-    return hashes, checkpoints, gold
+    return hashes, checkpoints, gold, mine_log
 
 
 class SquareAsMultiply(ast.NodeTransformer):
@@ -228,6 +287,32 @@ def main():
     for i, (x, y) in enumerate([(2, 20), (25, 17)]):
         scenarios.append((f'gold field: tile zoo random #{i}', with_spawn(TILE_ZOO, x, y),
                           random_inputs(4000 + i, 1800), True))
+    # Mines: mostly toggle mines (which get armed as the ninja passes), so runs
+    # last a while before a mine kills the ninja.
+    for i, (x, y) in enumerate([(1, 21), (20, 21), (28, 21), (14, 6), (27, 16), (36, 13), (2, 20), (25, 17)]):
+        base = PLAYGROUND if i < 6 else TILE_ZOO
+        rows = with_spawn(base, x, y)
+        sx, sy = (x + 1) * 4 + 2, (y + 1) * 4 + 2
+        far = lambda pts: [p for p in pts if abs(p[0] - sx) > 8 or abs(p[1] - sy) > 8]
+        mines = far(random_mines(5000 + i, rows, 12))
+        toggles = far(random_mines(6000 + i, rows, 60))
+        scenarios.append((f'mines: random #{i}', rows, random_inputs(7000 + i, 3600), False, mines, toggles))
+
+    # Mines right at the edge of touching: the ninja's path is known from a run
+    # without mines, so mines can be placed where it passes just outside (or
+    # inside) touching distance. Radii: ninja 10, mine 4 (armed) / 3.5 (safe).
+    for i, (x, y) in enumerate([(1, 21), (20, 21), (28, 21), (14, 6)]):
+        rows = with_spawn(PLAYGROUND, x, y)
+        inputs = random_inputs(8000 + i, 1800, right_bias=0.05)
+        near = graze_mines(Simulator, rows, inputs)
+        misses = sorted(p for p, (d, _) in near.items() if 14 <= d < 14.6)
+        toggles = sorted(p for p, (d, _) in near.items() if 12.8 <= d < 14.2 and p not in misses)
+        scenarios.append((f'mines: near misses #{i}', rows, inputs, False, misses, []))
+        scenarios.append((f'mines: toggle mines on the edge #{i}', rows, inputs, False, [], toggles))
+        # The two mines the ninja only just touches.
+        hits = sorted((p for p, (d, _) in near.items() if d < 14), key=lambda p: -near[p][0])
+        for j, p in enumerate(hits[:2]):
+            scenarios.append((f'mines: graze #{i}.{j} (distance {near[p][0]:.5f})', rows, inputs, False, [p], []))
 
     fixture = {
         'source': 'nclone @ 842190b2a216579b5b5c551e0a0b4505fc3381cc',
@@ -238,19 +323,24 @@ def main():
         },
         'scenarios': [],
     }
-    for name, rows, inputs, *field in scenarios:
-        field = bool(field and field[0])
-        hashes, checkpoints, gold = run(Simulator, rows, inputs, gold_field() if field else ())
+    for name, rows, inputs, *extra in scenarios:
+        field = bool(extra and extra[0])
+        mines, toggles = (extra[1], extra[2]) if len(extra) > 1 else ([], [])
+        hashes, checkpoints, gold, mine_log = run(Simulator, rows, inputs, gold_field() if field else (), mines, toggles)
         fixture['scenarios'].append({
             'name': name,
             'rows': rows,
             'goldField': field,
+            'mines': [list(m) for m in mines],
+            'toggleMines': [list(m) for m in toggles],
             'inputs': encode_inputs(inputs[:len(hashes)]),
             'hashes': ''.join(hashes),
             'checkpoints': checkpoints,
             'gold': gold,
+            'mineLog': mine_log,
         })
-        print(f'{name}: {len(hashes)} frames, final state {checkpoints[-1][5]}, gold {gold[-1][1] if gold else 0}')
+        print(f'{name}: {len(hashes)} frames, final state {checkpoints[-1][5]}, gold {gold[-1][1] if gold else 0}, '
+              f'mine changes {len(mine_log)}')
 
     with open(out_path, 'w') as f:
         json.dump(fixture, f, separators=(',', ':'))

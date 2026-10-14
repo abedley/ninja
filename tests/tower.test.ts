@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { AutoRunner } from '../src/game/autoRunner';
 import { parseLevel } from '../src/level/level';
 import { TOWER } from '../src/level/levels';
+import { MineState } from '../src/physics/mine';
 import { NinjaState } from '../src/physics/ninja';
 import { Simulator } from '../src/physics/simulator';
 import { TILE_SIZE } from '../src/physics/tileDefs';
@@ -13,7 +14,7 @@ import { replay, type Plan } from '../tools/solver/solver';
  *   npx vite-node tools/solver/solve.ts Tower
  * and paste the new plan here.
  */
-const TOWER_ROUTE: Plan = [[80,35],[4,46],[1,25],[8,46],[13,46],[1,35],[4,46],[35,46],[80,46],[80,46],[80,35],[13,46],[1,46],[35,9]];
+const TOWER_ROUTE: Plan = [[80,35],[4,35],[4,35],[1,46],[80,46],[80,46],[60,46],[46,16],[1,46],[26,25],[8,46],[80,16],[26,25],[1,46],[1,25],[8,35],[46,46],[1,46],[1,46],[1,46],[13,25],[35,35],[1,46],[1,46],[1,35],[8,46],[4,3],[1,3],[1,3],[1,3],[46,46],[80,46],[80,35],[19,16],[46,46],[80,16],[35,25],[1,46],[13,46],[19,46],[35,46]];
 
 describe('Tower', () => {
   it('can be climbed with one button', () => {
@@ -42,6 +43,27 @@ function run(rows: string[], frames: number, presses: number[] = [], hold = 20) 
   }
   return { sim, runner, log };
 }
+
+describe('mines in levels', () => {
+  it('a mine kills the ninja running into it', () => {
+    const level = parseLevel({ name: 'x', rows: ['N....*...', '#########'] });
+    const sim = new Simulator(level.map, level.spawnX, level.spawnY, level);
+    for (let i = 0; i < 120 && sim.ninja.state < NinjaState.Dead; i++) sim.tick(1, false);
+    expect(sim.ninja.state).toBe(NinjaState.Dead);
+    expect(sim.killedBy).toBe(sim.mines[0]);
+  });
+
+  it('a toggle mine is safe the first time, and armed once the ninja has passed it', () => {
+    const level = parseLevel({ name: 'x', rows: ['N...%....', '#########'] });
+    const sim = new Simulator(level.map, level.spawnX, level.spawnY, level);
+    // Run right over it (it starts arming, then arms), then back left into it.
+    for (let i = 0; i < 70; i++) sim.tick(1, false);
+    expect(sim.ninja.state).toBeLessThan(NinjaState.Dead);
+    expect(sim.mines[0].state).toBe(MineState.Armed);
+    for (let i = 0; i < 200 && sim.ninja.state < NinjaState.Dead; i++) sim.tick(-1, false);
+    expect(sim.ninja.state).toBe(NinjaState.Dead);
+  });
+});
 
 describe('auto-runner', () => {
   const room = ['........', '........', '........', 'N.......'];

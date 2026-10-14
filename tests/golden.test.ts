@@ -64,9 +64,17 @@ describe('tile tables match N++', () => {
 describe('frame-exact physics vs nclone', () => {
   for (const scenario of golden.scenarios) {
     it(scenario.name, () => {
-      const level = parseLevel({ name: scenario.name, rows: scenario.rows });
+      const level = parseLevel({
+        name: scenario.name,
+        rows: scenario.rows,
+        mines: scenario.mines as [number, number][],
+        toggleMines: scenario.toggleMines as [number, number][],
+      });
       const gold = scenario.goldField ? [...level.gold, ...goldField()] : level.gold;
-      const sim = new Simulator(level.map, level.spawnX, level.spawnY, gold);
+      const sim = new Simulator(level.map, level.spawnX, level.spawnY, { ...level, gold });
+      // Mine states as the reference has them, updated from its log of changes.
+      const mineStates = sim.mines.map((m) => m.state as number);
+      let mineLogPos = 0;
       // Frame -> total gold collected, at each frame where the total changes.
       const goldAt = new Map(scenario.gold.map(([frame, total]) => [frame, total]));
       let goldTotal = 0;
@@ -88,6 +96,15 @@ describe('frame-exact physics vs nclone', () => {
         if (sim.goldCollected !== goldTotal) {
           throw new Error(`Gold diverged at frame ${sim.frame}: collected ${sim.goldCollected}, expected ${goldTotal}`);
         }
+        while (mineLogPos < scenario.mineLog.length && scenario.mineLog[mineLogPos][0] === sim.frame) {
+          const [, index, state] = scenario.mineLog[mineLogPos++];
+          mineStates[index] = state;
+        }
+        sim.mines.forEach((m, j) => {
+          if (m.state !== mineStates[j]) {
+            throw new Error(`Mine ${j} diverged at frame ${sim.frame}: state ${m.state}, expected ${mineStates[j]}`);
+          }
+        });
       }
       expect(sim.frame).toBe(scenario.inputs.length);
     });

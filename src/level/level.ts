@@ -10,6 +10,8 @@ import { TileMap } from '../physics/tileMap';
  * Legend (tile id in brackets):
  *   .  empty [0]                 #  full [1]                N  ninja spawn (empty tile)
  *   $  gold, centred in an empty tile
+ *   *  mine, centred in an empty tile
+ *   %  toggle mine (safe until touched, armed once the ninja moves off it), centred in an empty tile
  *   T R B L   half tile, solid on the Top/Right/Bottom/Left [2-5]
  *   y z       45 degree ceiling, solid top-left / top-right [6, 7]
  *   / \       45 degree floor, rising / falling to the right [8, 9]
@@ -26,6 +28,8 @@ import { TileMap } from '../physics/tileMap';
 export const TILE_LEGEND = '.#TRBLyz/\\uvwxUVWXabcdefghijklmnop';
 const SPAWN_CHAR = 'N';
 const GOLD_CHAR = '$';
+const MINE_CHAR = '*';
+const TOGGLE_MINE_CHAR = '%';
 /** N++ positions entities on a quarter-tile grid. */
 export const ENTITY_GRID = TILE_SIZE / 4;
 
@@ -37,6 +41,10 @@ export interface LevelDef {
    * counted from the outer edge of the border, so a tile centre is 4n + 2).
    */
   gold?: [number, number][];
+  /** Extra mines, in the same units as `gold`. */
+  mines?: [number, number][];
+  /** Extra toggle mines, in the same units as `gold`. */
+  toggleMines?: [number, number][];
 }
 
 export interface Level {
@@ -44,8 +52,10 @@ export interface Level {
   map: TileMap;
   spawnX: number;
   spawnY: number;
-  /** Gold positions in world px. */
+  /** Entity positions in world px. */
   gold: Point[];
+  mines: Point[];
+  toggleMines: Point[];
 }
 
 export function parseLevel(def: LevelDef): Level {
@@ -57,6 +67,9 @@ export function parseLevel(def: LevelDef): Level {
   const tiles = new Uint8Array(width * height).fill(1);
   let spawn: [number, number] | null = null;
   const gold: Point[] = [];
+  const mines: Point[] = [];
+  const toggleMines: Point[] = [];
+  const entityLists: Record<string, Point[]> = { [GOLD_CHAR]: gold, [MINE_CHAR]: mines, [TOGGLE_MINE_CHAR]: toggleMines };
 
   for (let y = 0; y < innerH; y++) {
     const row = def.rows[y];
@@ -70,8 +83,8 @@ export function parseLevel(def: LevelDef): Level {
         if (spawn) throw new Error(`Level "${def.name}" has more than one spawn`);
         spawn = [x + 1, y + 1];
         id = 0;
-      } else if (ch === GOLD_CHAR) {
-        gold.push({ x: (x + 1) * TILE_SIZE + TILE_SIZE / 2, y: (y + 1) * TILE_SIZE + TILE_SIZE / 2 });
+      } else if (ch in entityLists) {
+        entityLists[ch].push({ x: (x + 1) * TILE_SIZE + TILE_SIZE / 2, y: (y + 1) * TILE_SIZE + TILE_SIZE / 2 });
         id = 0;
       } else {
         id = TILE_LEGEND.indexOf(ch);
@@ -82,7 +95,12 @@ export function parseLevel(def: LevelDef): Level {
   }
   if (!spawn) throw new Error(`Level "${def.name}" has no spawn ("${SPAWN_CHAR}")`);
   const [sx, sy] = spawn;
-  for (const [gx, gy] of def.gold ?? []) gold.push({ x: gx * ENTITY_GRID, y: gy * ENTITY_GRID });
+  const extra = (list: Point[], coords: [number, number][] = []) => {
+    for (const [ex, ey] of coords) list.push({ x: ex * ENTITY_GRID, y: ey * ENTITY_GRID });
+  };
+  extra(gold, def.gold);
+  extra(mines, def.mines);
+  extra(toggleMines, def.toggleMines);
 
   return {
     name: def.name,
@@ -91,5 +109,7 @@ export function parseLevel(def: LevelDef): Level {
     spawnX: sx * TILE_SIZE + TILE_SIZE / 2,
     spawnY: sy * TILE_SIZE + TILE_SIZE / 2,
     gold,
+    mines,
+    toggleMines,
   };
 }

@@ -85,7 +85,7 @@ export class Game {
   }
 
   private respawnAt(x: number, y: number): void {
-    this.sim = new Simulator(this.level.map, x, y, this.level.gold);
+    this.sim = new Simulator(this.level.map, x, y, this.level);
     this.runner = new AutoRunner(this.sim.ninja);
     this.phase = Phase.Ready;
     this.sparkles = [];
@@ -159,11 +159,13 @@ export class Game {
     this.animator.update(ninja);
     this.followCamera();
     this.stepScarf();
-    for (const g of this.sim.goldThisTick) this.sparkles.push({ x: g.x, y: g.y, age: 0 });
+    for (const g of this.sim.goldThisTick) this.sparkles.push({ x: g.x, y: g.y, age: 0, kind: 'gold' });
 
     // (Re-read the state: tick() may have changed it.)
     if (this.isDead) {
       this.phase = Phase.Dead;
+      const mine = this.sim.killedBy;
+      if (mine) this.sparkles.push({ x: mine.x, y: mine.y, age: 0, kind: 'blast' });
       this.explode();
     }
   }
@@ -268,6 +270,7 @@ export class Game {
     this.renderer.draw(
       cam,
       this.sim.gold,
+      this.sim.mines,
       this.sparkles,
       alive ? { x, y, tilt: this.animator.tilt, facing: this.animator.facing, pose, scarf: this.scarf } : null,
       this.debris,

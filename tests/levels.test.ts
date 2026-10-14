@@ -36,7 +36,7 @@ describe('level parser', () => {
 describe('gold', () => {
   it('is collected once, by running into it', () => {
     const level = parseLevel({ name: 'x', rows: ['N.....$..', '#########'] });
-    const sim = new Simulator(level.map, level.spawnX, level.spawnY, level.gold);
+    const sim = new Simulator(level.map, level.spawnX, level.spawnY, level);
     let pickedUpOn = 0;
     for (let i = 0; i < 120; i++) {
       sim.tick(1, false);
@@ -49,7 +49,7 @@ describe('gold', () => {
 
   it('is not collected when a tile overhead', () => {
     const level = parseLevel({ name: 'x', rows: ['.........', '......$..', 'N........', '#########'] });
-    const sim = new Simulator(level.map, level.spawnX, level.spawnY, level.gold);
+    const sim = new Simulator(level.map, level.spawnX, level.spawnY, level);
     for (let i = 0; i < 120; i++) sim.tick(1, false);
     expect(sim.goldCollected).toBe(0);
   });

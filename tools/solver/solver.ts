@@ -1,4 +1,5 @@
 import { AutoRunner } from '../../src/game/autoRunner';
+import type { MineState } from '../../src/physics/mine';
 import { Ninja, NinjaState } from '../../src/physics/ninja';
 import { Simulator } from '../../src/physics/simulator';
 import type { Level } from '../../src/level/level';
@@ -17,6 +18,8 @@ export type Plan = [gap: number, hold: number][];
 interface Node {
   ninja: Ninja;
   dir: -1 | 1;
+  /** Toggle mines remember being touched, so their states are part of the search state. */
+  mines: MineState[];
   frame: number;
   bestY: number;
   plan: Plan;
@@ -51,10 +54,12 @@ export interface SolveResult {
 export function solve(level: Level, goalY: number, opts: { beam?: number; maxPresses?: number } = {}): SolveResult {
   const beamWidth = opts.beam ?? 80;
   const maxPresses = opts.maxPresses ?? 200;
-  const sim = new Simulator(level.map, level.spawnX, level.spawnY);
+  const sim = new Simulator(level.map, level.spawnX, level.spawnY, { mines: level.mines, toggleMines: level.toggleMines });
+  const loadMines = (states: MineState[]) => sim.mines.forEach((m, i) => (m.state = states[i]));
+  const saveMines = () => sim.mines.map((m) => m.state);
   // Settle at the spawn point before the first press.
   for (let i = 0; i < 20; i++) sim.tick(0, false);
-  let beam: Node[] = [{ ninja: cloneNinja(sim.ninja), dir: 1, frame: 0, bestY: sim.ninja.ypos, plan: [] }];
+  let beam: Node[] = [{ ninja: cloneNinja(sim.ninja), dir: 1, mines: saveMines(), frame: 0, bestY: sim.ninja.ypos, plan: [] }];
   let bestY = sim.ninja.ypos;
 
   for (let depth = 0; depth < maxPresses && beam.length; depth++) {
@@ -64,20 +69,22 @@ export function solve(level: Level, goalY: number, opts: { beam?: number; maxPre
         for (const hold of HOLDS) {
           const child: Node = { ...node, ninja: cloneNinja(node.ninja), plan: [...node.plan, [gap, hold]] };
           sim.ninja = child.ninja;
+          loadMines(node.mines);
           const runner = new AutoRunner(child.ninja, child.dir);
           if (!advance(child, gap, false, false, sim, runner)) continue;
           if (!advance(child, hold, true, true, sim, runner)) continue;
           child.dir = runner.dir;
+          child.mines = saveMines();
           bestY = Math.min(bestY, child.bestY);
           if (child.bestY <= goalY) {
             // Make sure the ninja survives the landing.
-            const check = { ...child, ninja: cloneNinja(child.ninja) };
+            const check = { ...child, ninja: cloneNinja(child.ninja), mines: [...child.mines] };
             sim.ninja = check.ninja;
             if (advance(check, 150, false, false, sim, runner)) return { plan: child.plan, bestY };
             continue;
           }
           const n = child.ninja;
-          const key = `${Math.round(n.xpos / 8)},${Math.round(n.ypos / 8)},${child.dir},${n.airborn ? 1 : 0},${Math.round(n.yspeed)}`;
+          const key = `${Math.round(n.xpos / 8)},${Math.round(n.ypos / 8)},${child.dir},${n.airborn ? 1 : 0},${Math.round(n.yspeed)},${child.mines.join('')}`;
           const prev = next.get(key);
           if (!prev || score(child) < score(prev)) next.set(key, child);
         }
@@ -95,7 +102,7 @@ function score(n: Node): number {
 
 /** Replay a plan from the spawn; returns the simulator after it, plus a final 150 idle frames. */
 export function replay(level: Level, plan: Plan, onFrame?: (sim: Simulator) => void): Simulator {
-  const sim = new Simulator(level.map, level.spawnX, level.spawnY, level.gold);
+  const sim = new Simulator(level.map, level.spawnX, level.spawnY, level);
   for (let i = 0; i < 20; i++) sim.tick(0, false);
   const runner = new AutoRunner(sim.ninja);
   const step = (held: boolean, pressed: boolean) => {

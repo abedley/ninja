@@ -1,4 +1,5 @@
 import { GOLD_RADIUS, Gold, overlapCircleVsCircle } from './gold';
+import { Mine } from './mine';
 import { NINJA, Ninja, NinjaState, type HorInput } from './ninja';
 import { TileMap } from './tileMap';
 
@@ -10,6 +11,14 @@ export interface Point {
   y: number;
 }
 
+/** Entities to place in a level (positions in world px). */
+export interface Entities {
+  gold?: readonly Point[];
+  mines?: readonly Point[];
+  /** Toggle mines: safe until touched, armed once the ninja moves off them. */
+  toggleMines?: readonly Point[];
+}
+
 export class Simulator {
   readonly map: TileMap;
   ninja: Ninja;
@@ -18,11 +27,19 @@ export class Simulator {
   goldCollected = 0;
   /** Gold picked up during the most recent tick. */
   readonly goldThisTick: Gold[] = [];
+  /** Regular mines first, then toggle mines (the order N++ updates them in). */
+  readonly mines: Mine[];
+  /** The mine that killed the ninja, if one did. */
+  killedBy: Mine | null = null;
 
-  constructor(map: TileMap, spawnX: number, spawnY: number, gold: readonly Point[] = []) {
+  constructor(map: TileMap, spawnX: number, spawnY: number, entities: Entities = {}) {
     this.map = map;
     this.ninja = new Ninja(map, spawnX, spawnY);
-    this.gold = gold.map((g) => new Gold(g.x, g.y));
+    this.gold = (entities.gold ?? []).map((g) => new Gold(g.x, g.y));
+    this.mines = [
+      ...(entities.mines ?? []).map((m) => new Mine(m.x, m.y, false)),
+      ...(entities.toggleMines ?? []).map((m) => new Mine(m.x, m.y, true)),
+    ];
   }
 
   /** Advance the simulation by exactly one frame. */
@@ -33,6 +50,9 @@ export class Simulator {
     ninja.horInput = horInput;
     ninja.jumpInput = jumpInput;
 
+    // Entities think first, using the ninja's position from the previous frame.
+    for (const m of this.mines) m.think(ninja);
+
     if (ninja.state === NinjaState.Disabled || ninja.state === NinjaState.Dead) return;
 
     ninja.integrate();
@@ -40,7 +60,9 @@ export class Simulator {
     // N++ runs four collision passes per frame (entities would go in between).
     for (let i = 0; i < 4; i++) ninja.collideVsTiles();
     // Logical (non-physical) entity collisions open N++'s post-collision step.
+    // (Gold and mines don't affect each other, so their order doesn't matter.)
     this.collectGold();
+    for (const m of this.mines) if (m.logicalCollision(ninja)) this.killedBy ??= m;
     ninja.postCollision();
     ninja.think();
   }

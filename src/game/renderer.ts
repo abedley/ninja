@@ -1,5 +1,6 @@
 import { CircularSegment, LinearSegment } from '../physics/geometry';
 import { GOLD_RADIUS, type Gold } from '../physics/gold';
+import { MineState, type Mine } from '../physics/mine';
 import { TILE_SIZE } from '../physics/tileDefs';
 import type { TileMap } from '../physics/tileMap';
 import type { Pose, P } from './animator';
@@ -17,6 +18,10 @@ export const COLORS = {
   gold: '#dcaa2e',
   goldLight: '#f6dc86',
   goldDark: '#a3761a',
+  mine: '#1b1b20',
+  mineCore: '#e0283c',
+  mineArming: '#f0a020',
+  blast: '#e0283c',
   debug: '#d0204a',
 };
 
@@ -138,6 +143,7 @@ export class Renderer {
   draw(
     cam: Camera,
     gold: readonly Gold[],
+    mines: readonly Mine[],
     sparkles: readonly Sparkle[],
     ninja: NinjaView | null,
     debris: Debris | null,
@@ -169,6 +175,7 @@ export class Renderer {
     ctx.stroke(this.outline);
 
     this.drawGold(ctx, gold, debugCircle !== null);
+    this.drawMines(ctx, mines, debugCircle !== null);
     this.drawSparkles(ctx, sparkles);
     if (debris) debris.draw(ctx, COLORS.ninja);
     if (ninja) this.drawNinja(ctx, ninja);
@@ -231,10 +238,71 @@ export class Renderer {
     }
   }
 
-  /** A quick burst where gold was picked up: an expanding ring and four glints. */
+  /**
+   * Mines: armed ones are spiky and dark with a red core; safe toggle mines
+   * are a hollow ring; arming ones glow amber.
+   */
+  private drawMines(ctx: CanvasRenderingContext2D, mines: readonly Mine[], debug: boolean): void {
+    const pulse = 0.75 + 0.25 * Math.sin(performance.now() / 180);
+    for (const m of mines) {
+      if (m.state === MineState.Safe) {
+        ctx.strokeStyle = COLORS.mine;
+        ctx.globalAlpha = 0.7;
+        ctx.lineWidth = 1.4;
+        ctx.beginPath();
+        ctx.arc(m.x, m.y, 3.4, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+        continue;
+      }
+      ctx.fillStyle = COLORS.mine;
+      ctx.beginPath();
+      const spikes = 8;
+      for (let i = 0; i < spikes * 2; i++) {
+        const a = (i * Math.PI) / spikes;
+        const r = i % 2 ? 3.2 : 5.6;
+        if (i) ctx.lineTo(m.x + Math.cos(a) * r, m.y + Math.sin(a) * r);
+        else ctx.moveTo(m.x + r, m.y);
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = m.state === MineState.Armed ? COLORS.mineCore : COLORS.mineArming;
+      ctx.globalAlpha = m.state === MineState.Armed ? pulse : 1;
+      ctx.beginPath();
+      ctx.arc(m.x, m.y, 1.8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+    if (debug) {
+      ctx.strokeStyle = COLORS.debug;
+      ctx.lineWidth = 0.5;
+      ctx.beginPath();
+      for (const m of mines) {
+        ctx.moveTo(m.x + m.radius, m.y);
+        ctx.arc(m.x, m.y, m.radius, 0, Math.PI * 2);
+      }
+      ctx.stroke();
+    }
+  }
+
+  /** Bursts: gold pickups (a ring and four glints) and mine blasts (a bigger red ring). */
   private drawSparkles(ctx: CanvasRenderingContext2D, sparkles: readonly Sparkle[]): void {
     for (const s of sparkles) {
       const t = s.age / SPARKLE_FRAMES;
+      if (s.kind === 'blast') {
+        const ease = 1 - (1 - t) * (1 - t);
+        ctx.globalAlpha = 1 - t;
+        ctx.fillStyle = COLORS.blast;
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, 3 + ease * 14, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = COLORS.mineArming;
+        ctx.lineWidth = 1.5 * (1 - t) + 0.3;
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, 5 + ease * 22, 0, Math.PI * 2);
+        ctx.stroke();
+        continue;
+      }
       const ease = 1 - (1 - t) * (1 - t);
       ctx.globalAlpha = 1 - t;
       ctx.strokeStyle = COLORS.gold;
