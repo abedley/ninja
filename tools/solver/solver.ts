@@ -3,13 +3,15 @@ import type { MineState } from '../../src/physics/mine';
 import { Ninja, NinjaState } from '../../src/physics/ninja';
 import { Simulator, TICK_RATE, type Point } from '../../src/physics/simulator';
 import type { Level } from '../../src/level/level';
+import { TILE_SIZE } from '../../src/physics/tileDefs';
+import type { TileMap } from '../../src/physics/tileMap';
 
 /**
  * A search bot for one-button levels: a beam search over jump presses. With
  * no goal height it finds a way to collect the key and reach the exit door;
  * given one, a way to get the ninja up to that height and survive the
  * landing. It proves that a level can be completed with the one-button
- * controls; the plans it finds are replayed by tests/tower.test.ts.
+ * controls; the plans it finds are replayed by tests/campaign.test.ts.
  *
  * A plan is a list of presses, each [frames released before it, frames held].
  * Play starts (the ninja starts running) after 20 frames of settling.
@@ -39,7 +41,7 @@ function cloneNinja(n: Ninja): Ninja {
 }
 
 /** Run `frames` frames from a node's state; returns false if the ninja died. */
-function advance(node: Node, frames: number, held: boolean, firstPressed: boolean, sim: Simulator, runner: AutoRunner, target: () => Point | null): boolean {
+function advance(node: Node, frames: number, held: boolean, firstPressed: boolean, sim: Simulator, runner: AutoRunner, target: () => Goal | null): boolean {
   for (let i = 0; i < frames; i++) {
     const n = sim.ninja;
     sim.tick(runner.input(n, held && i === 0 && firstPressed), held);
@@ -58,13 +60,43 @@ function advance(node: Node, frames: number, held: boolean, firstPressed: boolea
   return true;
 }
 
+/** A target, with each tile's distance from it (in tiles, through open tiles). */
+interface Goal extends Point {
+  field: Int32Array;
+  width: number;
+}
+
+/** Breadth-first distances (in tiles) from the target's tile to every tile that isn't solid. */
+function goal(map: TileMap, t: Point): Goal {
+  const { width, height } = map;
+  const field = new Int32Array(width * height).fill(-1);
+  const start = Math.floor(t.y / TILE_SIZE) * width + Math.floor(t.x / TILE_SIZE);
+  field[start] = 0;
+  const queue = [start];
+  for (let i = 0; i < queue.length; i++) {
+    const c = queue[i];
+    const x = c % width;
+    const y = (c - x) / width;
+    for (const [nx, ny] of [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]]) {
+      if (map.tileAt(nx, ny) === 1) continue;
+      const n = ny * width + nx;
+      if (field[n] >= 0) continue;
+      field[n] = field[c] + 1;
+      queue.push(n);
+    }
+  }
+  return { x: t.x, y: t.y, field, width };
+}
+
 /**
- * How far the ninja is from a target. Levels are climbed, often zigzagging,
- * so sideways distance only counts once the ninja is near the target's height.
+ * How far the ninja is from a target: the length of the shortest path to it
+ * through open tiles (so walls and floors in the way count), and the straight
+ * distance once it's close.
  */
-function distance(n: Ninja, t: Point): number {
-  const dy = Math.abs(n.ypos - t.y);
-  return dy + Math.max(0, 1 - dy / 72) * 0.5 * Math.abs(n.xpos - t.x);
+function distance(n: Ninja, t: Goal): number {
+  const tiles = t.field[Math.floor(n.ypos / TILE_SIZE) * t.width + Math.floor(n.xpos / TILE_SIZE)];
+  const straight = Math.hypot(n.xpos - t.x, n.ypos - t.y);
+  return tiles <= 1 ? straight : Math.max(straight, tiles * TILE_SIZE);
 }
 
 export interface SolveResult {
@@ -90,7 +122,9 @@ export function solve(level: Level, opts: { goalY?: number; beam?: number; maxPr
   for (let i = 0; i < SETTLE_FRAMES; i++) sim.tick(0, false);
   let beam: Node[] = [{ ninja: cloneNinja(sim.ninja), dir: 1, mines: saveMines(), hasKey: false, frame: 0, bestDist: Infinity, bestY: sim.ninja.ypos, plan: [] }];
   let bestY = sim.ninja.ypos;
-  const targetOf = (node: Node): Point | null => (goalY !== undefined ? null : node.hasKey ? door : key);
+  const keyGoal = key && goal(level.map, key);
+  const doorGoal = door && goal(level.map, door);
+  const targetOf = (node: Node): Goal | null => (goalY !== undefined ? null : node.hasKey ? doorGoal : keyGoal);
   const goalReached = (node: Node) => (goalY === undefined ? node.ninja.state === NinjaState.Celebrating : node.bestY <= goalY);
 
   for (let depth = 0; depth < maxPresses && beam.length; depth++) {
@@ -136,7 +170,7 @@ export function solve(level: Level, opts: { goalY?: number; beam?: number; maxPr
  * for the best height so far. Going for the key, then the door: the same, by
  * distance to the target, and any node with the key beats any without.
  */
-function score(node: Node, target: Point | null): number {
+function score(node: Node, target: Goal | null): number {
   const n = node.ninja;
   if (!target) return n.ypos * 0.7 + node.bestY * 0.3 + node.frame * 0.01;
   return distance(n, target) * 0.7 + node.bestDist * 0.3 + node.frame * 0.01 + (node.hasKey ? 0 : 1e6);
@@ -145,12 +179,14 @@ function score(node: Node, target: Point | null): number {
 /**
  * Replay a plan from the spawn, as the game plays it (the clock starts with
  * the first press of play); returns the simulator after it, plus a final 150
- * idle frames.
+ * idle frames. The clock starts with `clock` frames (by default the level's
+ * own time).
  */
-export function replay(level: Level, plan: Plan, onFrame?: (sim: Simulator) => void): Simulator {
+export function replay(level: Level, plan: Plan, onFrame?: (sim: Simulator) => void, clock?: number): Simulator {
   const sim = new Simulator(level.map, level.spawnX, level.spawnY, level);
   for (let i = 0; i < SETTLE_FRAMES; i++) sim.tick(0, false);
-  if (level.time !== undefined) sim.timeLeft = level.time * TICK_RATE;
+  if (clock !== undefined) sim.timeLeft = clock;
+  else if (level.time !== undefined) sim.timeLeft = level.time * TICK_RATE;
   const runner = new AutoRunner(sim.ninja);
   const step = (held: boolean, pressed: boolean) => {
     sim.tick(runner.input(sim.ninja, pressed), held);

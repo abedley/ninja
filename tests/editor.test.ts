@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { blankLevel, check, exportText, importText, rectCells, resize, setCell, setCells, size } from '../src/editor/levelEdit';
 import { parseLevel, type LevelDef } from '../src/level/level';
-import { TOWER } from '../src/level/levels';
+import { LEVELS } from '../src/level/levels';
+
+const SUMMIT = LEVELS[LEVELS.length - 1];
 
 const tiny = (rows: string[], extra: Partial<LevelDef> = {}): LevelDef => ({ name: 'Tiny', description: '', rows, ...extra });
 
@@ -62,19 +64,19 @@ describe('level editor operations', () => {
   });
 
   it('exports an entry for levels.json that loads back the same', () => {
-    const text = exportText(TOWER);
-    expect(text.startsWith('{\n  "name": "Tower",')).toBe(true);
+    const text = exportText(SUMMIT);
+    expect(text.startsWith('{\n  "name": "Summit",')).toBe(true);
     // One row per line, as in levels.json.
-    expect(text).toContain(`\n    "${TOWER.rows[0]}",\n`);
+    expect(text).toContain(`\n    "${SUMMIT.rows[0]}",\n`);
     const back = importText(text);
-    expect(back).toEqual(TOWER);
+    expect(back).toEqual(SUMMIT);
     expect(() => parseLevel(back as LevelDef)).not.toThrow();
     // Coordinates stay on one line.
     expect(exportText(tiny(['N.'], { gold: [[6, 6]] }))).toContain('[6, 6]');
   });
 
   it('imports one entry or a whole levels.json list, and explains bad input', () => {
-    expect(importText(JSON.stringify([TOWER]))).toEqual(TOWER);
+    expect(importText(JSON.stringify([SUMMIT]))).toEqual(SUMMIT);
     expect(importText('nope')).toMatch(/valid JSON/);
     expect(importText('{"name": "x"}')).toMatch(/rows/);
   });

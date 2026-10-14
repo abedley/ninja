@@ -6,10 +6,27 @@ Metanet Software's *N: The Way of the Ninja*.
 The ninja runs by itself; you only jump. It keeps running the way it's going
 until it hits a wall: on the ground, a wall turns it around; in the air, it
 clings to the wall it hit and slides down until you tap, which kicks it off
-the wall and sends it running the other way. Climb the Tower (98 rows high),
-avoiding the mines. Pick up the key on the way to open the exit door at the
-top, and get there before the clock runs out. As in N, each piece of gold adds
-two seconds. Fall too far and you die.
+the wall and sends it running the other way. In each level, pick up the key to
+open the exit door, avoiding the mines, and get there before the clock runs
+out. Fall too far and you die.
+
+The game is a campaign of five levels on one clock, like an N++ episode: you
+start with 120 seconds, each level starts with the time left at the end of the
+one before, and each piece of gold adds two seconds. Dying (or running out of
+time) sends you back to the start of the level you're on, with the clock back
+where it was when you started it. The levels:
+
+1. **First Steps**: jumps and gold.
+2. **Backtrack**: the door is next to the start, but the key is at the bottom;
+   ride the ramps down and climb back up.
+3. **Minefield**: short, well-timed jumps between mines.
+4. **Chimneys**: wall jumps up two mine-lined shafts, one of them wide enough
+   to need full-height kicks.
+5. **Summit**: climb a mined shaft to the key at the top, then hop the mines on
+   the ramps all the way back down to the door.
+
+The game keeps your best time for each level (from the first tap to the door)
+and your five best runs, ranked by the time left at the end, in the browser.
 
 It's set at midnight in a neon city. The platforms are dark blocks edged with
 neon light, the ninja's headband glows hot pink, and gold, mines, the key and
@@ -38,7 +55,7 @@ Hold the phone upright.
 | | Touch | Keyboard / mouse |
 |---|---|---|
 | Start, jump | Tap anywhere; hold for a higher jump | Space, ↑, W, Z, X, Enter or Shift; or click |
-| Restart | ↺ button | R |
+| Restart the level | ↺ button | R |
 | Physics overlay | ⓘ button | `` ` `` (backtick) |
 
 With the physics overlay on, alt-clicking drops the ninja at that spot.
@@ -93,10 +110,14 @@ python3 -I tools/golden/gen_golden.py /tmp/nclone tests/fixtures/golden.json
 
 ## Levels
 
-The game opens the **Tower**; add `?level=playground` to the URL for the
-Playground (built for the original two-handed controls, but playable).
+The campaign is the list of levels in `src/level/levels.json`, played in
+order. The first level's `"time"` is the clock the campaign starts with; the
+other levels' times are used when a level is played on its own, with
+`?level=<name>` (for example `?level=minefield`). From the second level on, a
+**Start over from level 1** button on the level's title card (and after a
+death) starts a new run, in case the clock has got too low to finish.
 
-Levels live in `src/level/levels.json` as ASCII grids; the tile legend is in
+Levels are ASCII grids; the tile legend is in
 `src/level/level.ts`. `N` is the spawn; `$`, `*` and `%` put a piece of gold,
 a mine or a toggle mine in the middle of a tile, and `D` and `K` the exit door
 and its key. For finer placement, a level can also list `"gold"`, `"mines"`
@@ -121,8 +142,7 @@ Entities work as in N++ (they don't affect movement):
 The clock isn't part of N++'s physics: N has one, but nclone doesn't model it.
 Here it starts with the first tap, counts down one frame per tick, stops when
 the level is complete, gains two seconds per piece of gold, and kills the
-ninja when it reaches zero. The best time left at the exit is remembered in
-the browser.
+ninja when it reaches zero.
 
 ### Level editor
 
@@ -135,9 +155,9 @@ game to start from. **Playtest** opens the level in the game, with a pencil
 button to come back. The draft is kept in your browser.
 
 The **Export** box holds the level as an entry for `src/level/levels.json`:
-copy it into that file's list (replacing the entry with the same name, if
-you edited an existing level), then play it with `?level=<name>`. Editing
-logic is in `src/editor/levelEdit.ts`.
+copy it into that file's list where it should come in the campaign (replacing
+the entry with the same name, if you edited an existing level), or play it on
+its own with `?level=<name>`. Editing logic is in `src/editor/levelEdit.ts`.
 
 ### Checking that a level can be beaten
 
@@ -146,12 +166,14 @@ looks for a sequence of presses that collects the key and reaches the exit
 (or, for a level without one, climbs to a given row):
 
 ```sh
-npx vite-node tools/solver/solve.ts Tower   # [level] [beam width] [goal row]
+npx vite-node tools/solver/solve.ts "First Steps"   # [level] [beam width] [goal row]
 ```
 
-`tests/tower.test.ts` replays the route it found for the Tower, with the
-clock running. If you change the Tower, re-run the solver and paste the new
-route into the test.
+It steers towards the key, then the door, by the length of the path to them
+through open tiles. `tests/campaign.test.ts` replays the route it found for
+each level, with the level's own clock, and then all five on the campaign's
+one clock. If you change a level (or add one), re-run the solver and paste
+the new route into the test.
 
 ## Layout
 
@@ -159,11 +181,12 @@ route into the test.
 src/physics/   deterministic simulation: tiles -> segments, collision, ninja state machine
 src/level/     ASCII level format (legend in level.ts) and levels.json
 src/editor/    level editor (editor/index.html)
-src/game/      game loop (fixed 60 Hz), one-button auto-runner, input, camera and
-               renderer (neon style), parallax city backdrop, animation, death debris
+src/game/      game loop (fixed 60 Hz), campaign run and best times, one-button
+               auto-runner, input, camera and renderer (neon style), parallax
+               city backdrop, animation, death debris
 tools/golden/  reference-trace generator (needs an nclone checkout)
 tools/solver/  search bot that proves levels can be beaten with one button
-tests/         golden physics tests, level, Tower/auto-runner and debris tests
+tests/         golden physics tests; level, campaign, editor, auto-runner and debris tests
 ```
 
 The physics has no dependencies on the browser, rendering or wall-clock time.
@@ -174,5 +197,4 @@ which keeps replays and tests deterministic.
 
 - Entities: drones, thwumps, launch pads, bounce blocks, one-way platforms, other doors
 - Ragdoll death (the current one is a cosmetic stand-in)
-- More levels (and moving on to the next one after the exit)
 - Real ninja animation data (current poses are procedural)

@@ -1,35 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { AutoRunner } from '../src/game/autoRunner';
 import { parseLevel } from '../src/level/level';
-import { TOWER } from '../src/level/levels';
 import { MineState } from '../src/physics/mine';
 import { NinjaState } from '../src/physics/ninja';
 import { Simulator } from '../src/physics/simulator';
-import { replay, type Plan } from '../tools/solver/solver';
-
-/**
- * A route through the Tower found by tools/solver (one-button presses:
- * [frames released, frames held]): it picks up the key and reaches the exit.
- * If you change the level, re-run
- *   npx vite-node tools/solver/solve.ts Tower
- * and paste the new plan here.
- */
-const TOWER_ROUTE: Plan = [[80,35],[4,35],[4,35],[1,46],[80,46],[80,46],[60,46],[46,16],[1,46],[26,25],[8,35],[80,16],[46,16],[4,35],[1,46],[46,16],[4,46],[35,46],[1,46],[1,25],[8,35],[1,35],[35,46],[1,46],[1,46],[4,46],[1,46],[80,46],[60,46],[80,46],[80,35],[19,25],[46,46],[26,35],[1,46],[19,35],[26,46],[13,46],[35,46],[1,25]];
-
-describe('Tower', () => {
-  it('can be finished with one button, in time', () => {
-    const level = parseLevel(TOWER);
-    expect(level.time).toBeGreaterThan(0);
-    let keyFrame = 0;
-    const sim = replay(level, TOWER_ROUTE, (s) => {
-      if (!keyFrame && !s.key!.active) keyFrame = s.frame;
-    });
-    expect(keyFrame).toBeGreaterThan(0);
-    expect(sim.won).toBe(true);
-    expect(sim.ninja.state).toBe(NinjaState.Celebrating);
-    expect(sim.timedOut).toBe(false);
-  });
-});
 
 /** Run with the auto-runner, pressing jump on the given frames (held for `hold` frames). */
 function run(rows: string[], frames: number, presses: number[] = [], hold = 20) {

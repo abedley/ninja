@@ -51,7 +51,7 @@
             <input id="f-timed" type="checkbox" /> Time limit
             <input id="f-time" type="number" min="1" max="999" step="1" aria-label="Time limit in seconds" /> s
           </label>
-          <p class="note">Each piece of gold adds 2 s.</p>
+          <p class="note">Each piece of gold adds 2 s. In the campaign the clock carries over from level to level, starting with the first level's limit; a level's own limit is used when it's played on its own.</p>
         </section>
 
         <section>
@@ -78,7 +78,7 @@
 
         <section>
           <h2>Export</h2>
-          <p class="note">Add this to the list in <code>src/level/levels.json</code>, replacing the entry with the same name if there is one. Then play it with <code>?level=<span id="export-name"></span></code>.</p>
+          <p class="note">The game's campaign is the list in <code>src/level/levels.json</code>, played in order. Add this to it where it should come (or replace the entry with the same name). Play it on its own with <code>?level=<span id="export-name"></span></code>.</p>
           <textarea id="export" rows="10" readonly spellcheck="false"></textarea>
           <div class="row">
             <button id="btn-copy" class="primary">Copy</button>

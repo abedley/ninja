@@ -38,7 +38,14 @@ export const enum Phase {
 const STATE_NAMES = ['Immobile', 'Running', 'Sliding', 'Jumping', 'Falling', 'WallSliding', 'Dead', 'Dying', 'Celebrating', 'Disabled'];
 
 export class Game {
+  private def!: LevelDef;
   private level!: Level;
+  /** Frames on the clock when the level starts (Infinity if it isn't timed). A death goes back to it. */
+  private clock = Infinity;
+  /** The simulator frame play started on (the first tap). */
+  private startFrame = 0;
+  /** Frames from the first tap to the door, once the exit is reached. */
+  private clearedIn = 0;
   private sim!: Simulator;
   private readonly animator = new NinjaAnimator();
   private runner!: AutoRunner;
@@ -62,17 +69,29 @@ export class Game {
   private lastTime = -1;
   private running = false;
   debug = false;
+  /**
+   * Called by a tap once the exit has been reached (instead of playing the
+   * level again), e.g. to move on to the next level.
+   */
+  onContinue: (() => void) | null = null;
 
   constructor(
     private readonly renderer: Renderer,
     private readonly input: Input,
-    private readonly levelDef: LevelDef,
+    def: LevelDef,
+    clock?: number,
   ) {
-    this.loadLevel(levelDef);
+    this.loadLevel(def, clock);
   }
 
-  loadLevel(def: LevelDef): void {
+  /**
+   * Load a level, waiting at the spawn point for a tap. `clock` is the time it
+   * starts with, in frames (by default, the level's own time limit).
+   */
+  loadLevel(def: LevelDef, clock?: number): void {
+    this.def = def;
     this.level = parseLevel(def);
+    this.clock = clock ?? (this.level.time === undefined ? Infinity : this.level.time * TICK_RATE);
     this.renderer.setMap(this.level.map);
     this.restart();
   }
@@ -148,7 +167,8 @@ export class Game {
     if (this.phase === Phase.Won) {
       this.endFrames++;
       if (pressed && this.endFrames > WIN_RESTART_DELAY) {
-        this.begin();
+        if (this.onContinue) this.onContinue();
+        else this.begin();
         return;
       }
     }
@@ -179,6 +199,7 @@ export class Game {
 
     if (this.phase === Phase.Playing && this.sim.won) {
       this.phase = Phase.Won;
+      this.clearedIn = this.sim.frame - this.startFrame;
       const door = this.sim.door!;
       this.sparkles.push({ x: door.x, y: door.y, age: 0, kind: 'exit' });
     }
@@ -197,7 +218,8 @@ export class Game {
     this.phase = Phase.Playing;
     this.jumpNeedsRelease = true;
     // The clock starts with the first tap.
-    if (this.level.time !== undefined) this.sim.timeLeft = this.level.time * TICK_RATE;
+    if (this.timed) this.sim.timeLeft = this.clock;
+    this.startFrame = this.sim.frame;
   }
 
   private cameraTarget(): Camera {
@@ -327,18 +349,28 @@ export class Game {
 
   /** Whether the level has a clock. */
   get timed(): boolean {
-    return this.level.time !== undefined;
+    return this.clock !== Infinity;
   }
 
-  /** Seconds left (the level's full time until the first tap). */
-  get timeLeft(): number {
+  /** Frames left on the clock (the starting time until the first tap). */
+  get framesLeft(): number {
     const t = this.sim.timeLeft;
-    return t === Infinity ? (this.level.time ?? Infinity) : t / TICK_RATE;
+    return t === Infinity ? this.clock : t;
   }
 
-  /** The level's starting time, in seconds. */
+  /** Seconds left on the clock (the starting time until the first tap). */
+  get timeLeft(): number {
+    return this.framesLeft / TICK_RATE;
+  }
+
+  /** The time the level starts with, in seconds. */
   get timeLimit(): number {
-    return this.level.time ?? Infinity;
+    return this.clock / TICK_RATE;
+  }
+
+  /** Frames from the first tap to the door, once the exit has been reached. */
+  get clearFrames(): number {
+    return this.clearedIn;
   }
 
   /** Whether the level has an exit door (and key). */
@@ -363,7 +395,7 @@ export class Game {
     return this.sim.gold.length;
   }
 
-  get levelName(): string {
-    return this.levelDef.name;
+  get levelDef(): LevelDef {
+    return this.def;
   }
 }

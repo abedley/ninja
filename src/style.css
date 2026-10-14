@@ -231,6 +231,22 @@ body {
   text-align: right;
 }
 
+#level-label {
+  padding: 2px 8px;
+  border: 1px solid rgba(255, 43, 214, 0.45);
+  border-radius: 8px;
+  background: var(--control-bg);
+  color: #ffe1f7;
+  text-shadow: 0 0 8px var(--pink);
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+#level-label[hidden] {
+  display: none;
+}
+
 #timer.low #timer-fill {
   background: var(--danger);
   box-shadow: 0 0 10px var(--danger);
@@ -275,17 +291,23 @@ body {
   animation: pulse 1.6s ease-in-out infinite;
 }
 
-/* The level-complete summary: bigger, and steady until it's time to tap. */
-#message.won {
+/* Level titles and results: a card, steady rather than pulsing. */
+#message.card {
   bottom: auto;
-  top: 34%;
-  padding: 16px 26px;
+  top: 30%;
+  width: min(340px, calc(100% - 24px));
+  padding: 16px 20px;
   border-radius: 18px;
-  font-size: 17px;
+  font-size: 16px;
+  white-space: normal;
   animation: none;
 }
 
-#message.won strong {
+#message.card p {
+  margin: 4px 0;
+}
+
+#message strong {
   display: block;
   font-size: 24px;
   margin-bottom: 4px;
@@ -294,6 +316,126 @@ body {
   text-shadow:
     0 0 6px var(--pink),
     0 0 18px var(--pink);
+}
+
+#message .eyebrow {
+  color: var(--neon-light);
+  font-size: 13px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+#message .description {
+  color: #cfd0ef;
+  font-size: 15px;
+}
+
+#message .best,
+#message .new-best {
+  margin-left: 0.5em;
+  font-size: 14px;
+}
+
+#message .best {
+  color: #a9a8d4;
+}
+
+#message .new-best {
+  color: var(--gold-light);
+  text-shadow: 0 0 8px var(--gold);
+  font-weight: 600;
+}
+
+#message p.best {
+  margin-left: 0;
+}
+
+#message .score {
+  font-size: 19px;
+  font-weight: 600;
+}
+
+#message .prompt {
+  margin-top: 10px;
+  color: var(--neon-light);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+
+#message table {
+  width: 100%;
+  margin: 8px 0 4px;
+  border-collapse: collapse;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+#message th {
+  color: #a9a8d4;
+  font-weight: 500;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+#message th,
+#message td {
+  padding: 2px 4px;
+  text-align: right;
+}
+
+#message th:first-child,
+#message td:first-child {
+  text-align: left;
+}
+
+#message tr.total td {
+  border-top: 1px solid rgba(255, 43, 214, 0.35);
+  font-weight: 600;
+}
+
+#message .runs p {
+  margin-top: 10px;
+  color: #a9a8d4;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+#message .runs ol {
+  margin: 2px 0 0;
+  padding-left: 1.6em;
+  text-align: left;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+#message .runs li.you {
+  color: var(--gold-light);
+  text-shadow: 0 0 8px var(--gold);
+}
+
+#message .runs .best {
+  font-size: 13px;
+}
+
+/* "Start over from level 1": the only part of the message that takes taps. */
+.msg-btn {
+  display: block;
+  margin: 10px auto 0;
+  padding: 6px 14px;
+  border: 1px solid var(--control-border);
+  border-radius: 999px;
+  background: var(--control-bg);
+  color: var(--neon-light);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  pointer-events: auto;
+  touch-action: manipulation;
+}
+
+.msg-btn:active {
+  background: var(--control-bg-active);
 }
 
 @keyframes pulse {

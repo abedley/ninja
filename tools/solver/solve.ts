@@ -1,5 +1,5 @@
 /**
- * Find a one-button route through a level and print it as a plan for tests/tower.test.ts.
+ * Find a one-button route through a level and print it as a plan for tests/campaign.test.ts.
  *
  * Usage: npx vite-node tools/solver/solve.ts [level name] [beam width] [goal row]
  * The route collects the key and reaches the exit door; or, given a goal row
@@ -14,7 +14,7 @@ import { replay, solve } from './solver';
 // (The project has no Node type definitions; this script only needs these.)
 declare const process: { argv: string[]; exitCode?: number };
 
-const [name = 'Tower', beam = '60', goalRow] = process.argv.slice(2);
+const [name = LEVELS[0].name, beam = '60', goalRow] = process.argv.slice(2);
 const def = LEVELS.find((l) => l.name.toLowerCase() === name.toLowerCase());
 if (!def) throw new Error(`No level named "${name}"`);
 const level = parseLevel(def);
