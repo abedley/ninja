@@ -1,7 +1,9 @@
 import { Game, Phase } from './game/game';
 import { Input } from './game/input';
 import { Renderer } from './game/renderer';
+import { parseLevel, type LevelDef } from './level/level';
 import { LEVELS, TOWER } from './level/levels';
+import { loadPlaytest, PLAYTEST_PARAM } from './level/playtest';
 
 const app = document.getElementById('app')!;
 const canvas = document.getElementById('game') as HTMLCanvasElement;
@@ -17,9 +19,23 @@ const timer = document.getElementById('timer')!;
 const timerFill = document.getElementById('timer-fill')!;
 const timerText = document.getElementById('timer-text')!;
 
-// ?level=<name> picks another level (e.g. ?level=playground).
+// ?level=<name> picks another level (e.g. ?level=playground); ?level=editor plays the level editor's level.
 const wanted = new URLSearchParams(location.search).get('level')?.toLowerCase();
-const levelDef = LEVELS.find((l) => l.name.toLowerCase() === wanted) ?? TOWER;
+const playtest = wanted === PLAYTEST_PARAM ? validLevel(loadPlaytest()) : null;
+const levelDef = playtest ?? LEVELS.find((l) => l.name.toLowerCase() === wanted) ?? TOWER;
+
+function validLevel(def: LevelDef | null): LevelDef | null {
+  try {
+    if (def) parseLevel(def);
+    return def;
+  } catch {
+    return null;
+  }
+}
+
+// Playtesting from the editor: a button goes back to it.
+const btnEdit = document.getElementById('btn-edit') as HTMLAnchorElement;
+btnEdit.hidden = !playtest;
 
 const renderer = new Renderer(canvas);
 const input = new Input(app);
@@ -41,7 +57,7 @@ function toggleDebug(): void {
 }
 
 // HUD buttons must not also count as jumps.
-for (const btn of [btnRestart, btnDebug, btnFullscreen]) {
+for (const btn of [btnRestart, btnDebug, btnFullscreen, btnEdit]) {
   btn.addEventListener('pointerdown', (e) => e.stopPropagation());
 }
 btnRestart.addEventListener('click', () => game.restart());

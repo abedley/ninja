@@ -70,6 +70,10 @@ body {
   touch-action: manipulation;
 }
 
+.hud-btn[hidden] {
+  display: none;
+}
+
 .hud-btn:active,
 .hud-btn[aria-pressed='true'] {
   background: var(--control-bg-active);

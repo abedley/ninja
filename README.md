@@ -124,6 +124,21 @@ the level is complete, gains two seconds per piece of gold, and kills the
 ninja when it reaches zero. The best time left at the exit is remembered in
 the browser.
 
+### Level editor
+
+The game's site has a level editor at `/editor/` (for example
+`https://<user>.github.io/<repo>/editor/`, or `http://localhost:5173/editor/`
+with `npm run dev`). Paint tiles and objects on the grid: drag to paint,
+right-click to erase, and Shift-drag to fill a rectangle. Ctrl+Z undoes. You
+can resize the level at any edge, set a time limit, and load any level in the
+game to start from. **Playtest** opens the level in the game, with a pencil
+button to come back. The draft is kept in your browser.
+
+The **Export** box holds the level as an entry for `src/level/levels.json`:
+copy it into that file's list (replacing the entry with the same name, if
+you edited an existing level), then play it with `?level=<name>`. Editing
+logic is in `src/editor/levelEdit.ts`.
+
 ### Checking that a level can be beaten
 
 `tools/solver/` is a search bot that plays with the one-button controls and
@@ -143,6 +158,7 @@ route into the test.
 ```
 src/physics/   deterministic simulation: tiles -> segments, collision, ninja state machine
 src/level/     ASCII level format (legend in level.ts) and levels.json
+src/editor/    level editor (editor/index.html)
 src/game/      game loop (fixed 60 Hz), one-button auto-runner, input, camera and
                renderer (neon style), parallax city backdrop, animation, death debris
 tools/golden/  reference-trace generator (needs an nclone checkout)
@@ -158,5 +174,5 @@ which keeps replays and tests deterministic.
 
 - Entities: drones, thwumps, launch pads, bounce blocks, one-way platforms, other doors
 - Ragdoll death (the current one is a cosmetic stand-in)
-- More levels (and moving on to the next one after the exit), a level editor
+- More levels (and moving on to the next one after the exit)
 - Real ninja animation data (current poses are procedural)

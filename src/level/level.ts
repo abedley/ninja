@@ -38,6 +38,7 @@ export const ENTITY_GRID = TILE_SIZE / 4;
 
 export interface LevelDef {
   name: string;
+  description?: string;
   rows: string[];
   /**
    * Extra gold at arbitrary positions, as [x, y] in N++ entity units (6 px,
