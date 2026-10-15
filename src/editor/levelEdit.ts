@@ -58,11 +58,11 @@ export function setCells(def: LevelDef, cells: readonly [number, number][], ch: 
 }
 
 /** Entities that can be placed in a quarter of a tile (by coordinates, in the level's lists). */
-export type QuarterKind = 'mines' | 'toggleMines';
-const QUARTER_KINDS: QuarterKind[] = ['mines', 'toggleMines'];
+export type QuarterKind = 'gold' | 'mines' | 'toggleMines';
+const QUARTER_KINDS: QuarterKind[] = ['gold', 'mines', 'toggleMines'];
 
 /**
- * Put a mine (or toggle mine, or nothing: null) in quarters of tiles. Quarters
+ * Put gold, a mine or a toggle mine (or nothing: null) in quarters of tiles. Quarters
  * are given in half-tile steps across the level's rows: (2x + 0 or 1, 2y + 0 or
  * 1) for the left/right, top/bottom quarter of the tile at (x, y). A quarter
  * holds one thing, so placing replaces whatever was there.

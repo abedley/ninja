@@ -50,6 +50,7 @@ const TOOL_GROUPS: { title: string; tools: Tool[] }[] = [
       { ch: '$', label: 'Gold (+2 s)' },
       { ch: '*', label: 'Mine' },
       { ch: '%', label: 'Toggle mine (safe until touched)' },
+      { ch: '$', label: 'Gold in a quarter of a tile (up to four per tile)', quarter: 'gold' },
       { ch: '*', label: 'Mine in a quarter of a tile (up to four per tile)', quarter: 'mines' },
       { ch: '%', label: 'Toggle mine in a quarter of a tile (up to four per tile)', quarter: 'toggleMines' },
       { ch: 'K', label: 'Key (opens the door)' },

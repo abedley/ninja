@@ -65,6 +65,12 @@ describe('level editor operations', () => {
     expect(resize(four, 'right', -2).mines).toHaveLength(4);
     // And they're exported, and load back the same.
     expect(importText(exportText(four))).toEqual(four);
+    // Gold works the same way, and also takes over a quarter from a mine.
+    const gold = setQuarters(four, [[2, 0], [4, 2]], 'gold');
+    expect(gold.gold).toEqual([[9, 5], [13, 9]]);
+    expect(gold.mines).toEqual([[11, 5], [9, 7], [11, 7]]);
+    expect(parseLevel(gold).gold.map((g) => [g.x, g.y])).toEqual([[54, 30], [78, 54]]);
+    expect(setCell(gold, 1, 0, '.').gold).toEqual([[13, 9]]);
   });
 
   it('fills rectangles', () => {
