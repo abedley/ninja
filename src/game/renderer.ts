@@ -82,6 +82,8 @@ export class Renderer {
   private cssH = 0;
   /** Height (CSS px) of the HUD over the top of the screen: the top of a level can scroll down below it. */
   topInset = 0;
+  /** Gold and mines, drawn once at the current resolution (see EntitySprites). */
+  private sprites: EntitySprites | null = null;
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     const ctx = canvas.getContext('2d', { alpha: false });
@@ -217,6 +219,7 @@ export class Renderer {
     this.viewX = -ox / s;
     this.viewY = -oy / s;
     ctx.setTransform(s, 0, 0, s, ox, oy);
+    if (this.sprites?.pxPerUnit !== s) this.sprites = new EntitySprites(s);
 
     // Platforms: dark building blocks, with a few lit windows, edged with neon tubes.
     // (Glow reaches a few px beyond a band, so bands just off screen are drawn too.)
@@ -403,23 +406,13 @@ export class Renderer {
 
   /** Gold: glowing neon squares that shimmer, each a little out of step. */
   private drawGold(ctx: CanvasRenderingContext2D, gold: readonly Gold[], debug: boolean, now: number): void {
-    const h = 4.5;
+    const sprite = this.sprites!.gold;
     for (const g of gold) {
-      if (!g.active || !this.onScreen(g.x, g.y, 12)) continue;
-      const shimmer = 0.8 + 0.2 * Math.sin(now / 350 + g.x * 0.13 + g.y * 0.07);
-      radialGlow(ctx, g.x, g.y, 11, COLORS.gold, 0.22 * shimmer);
-      ctx.fillStyle = 'rgba(255, 210, 63, 0.18)';
-      ctx.fillRect(g.x - h, g.y - h, h * 2, h * 2);
-      this.glow(COLORS.gold, 3.5);
-      ctx.globalAlpha = shimmer;
-      ctx.strokeStyle = COLORS.gold;
-      ctx.lineWidth = 1.2;
-      ctx.strokeRect(g.x - h, g.y - h, h * 2, h * 2);
-      this.noGlow();
-      ctx.fillStyle = COLORS.goldLight;
-      ctx.fillRect(g.x - 1.4, g.y - 1.4, 2.8, 2.8);
-      ctx.globalAlpha = 1;
+      if (!g.active || !this.onScreen(g.x, g.y, sprite.r)) continue;
+      ctx.globalAlpha = 0.8 + 0.2 * Math.sin(now / 350 + g.x * 0.13 + g.y * 0.07);
+      sprite.stamp(ctx, g.x, g.y);
     }
+    ctx.globalAlpha = 1;
     if (debug) {
       ctx.strokeStyle = COLORS.debug;
       ctx.lineWidth = 0.5;
@@ -439,44 +432,33 @@ export class Renderer {
    */
   private drawMines(ctx: CanvasRenderingContext2D, mines: readonly Mine[], debug: boolean, now: number): void {
     const pulse = 0.7 + 0.3 * Math.sin(now / 160);
+    const sprites = this.sprites!;
+    // The spikes turn slowly; the shape repeats every 1/8 turn.
+    const turn = ((now / 2000) % MINE_SYMMETRY) / MINE_SYMMETRY;
+    const frame = Math.floor(turn * MINE_TURN_FRAMES) % MINE_TURN_FRAMES;
+    // Safe toggle mines, all in one path.
+    ctx.beginPath();
     for (const m of mines) {
-      if (!this.onScreen(m.x, m.y, 12)) continue;
-      if (m.state === MineState.Safe) {
-        ctx.strokeStyle = COLORS.mineGlow;
-        ctx.globalAlpha = 0.45;
-        ctx.lineWidth = 0.9;
-        ctx.beginPath();
-        ctx.arc(m.x, m.y, 3.4, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.globalAlpha = 1;
-        continue;
-      }
-      const armed = m.state === MineState.Armed;
-      const color = armed ? COLORS.mineGlow : COLORS.mineArming;
-      radialGlow(ctx, m.x, m.y, 12, color, armed ? 0.3 * pulse : 0.4);
-      ctx.beginPath();
-      const spikes = 8;
-      for (let i = 0; i < spikes * 2; i++) {
-        const a = (i * Math.PI) / spikes + now / 2000;
-        const r = i % 2 ? 3 : 5.6;
-        if (i) ctx.lineTo(m.x + Math.cos(a) * r, m.y + Math.sin(a) * r);
-        else ctx.moveTo(m.x + Math.cos(a) * r, m.y + Math.sin(a) * r);
-      }
-      ctx.closePath();
-      ctx.fillStyle = COLORS.mine;
-      ctx.fill();
-      this.glow(color, 3);
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 0.8;
-      ctx.stroke();
-      ctx.fillStyle = armed ? COLORS.mineCore : COLORS.mineArming;
-      ctx.globalAlpha = armed ? pulse : 1;
-      ctx.beginPath();
-      ctx.arc(m.x, m.y, 1.7, 0, Math.PI * 2);
-      ctx.fill();
-      this.noGlow();
-      ctx.globalAlpha = 1;
+      if (m.state !== MineState.Safe || !this.onScreen(m.x, m.y, 4)) continue;
+      ctx.moveTo(m.x + 3.4, m.y);
+      ctx.arc(m.x, m.y, 3.4, 0, Math.PI * 2);
     }
+    ctx.strokeStyle = COLORS.mineGlow;
+    ctx.globalAlpha = 0.45;
+    ctx.lineWidth = 0.9;
+    ctx.stroke();
+    for (const m of mines) {
+      if (m.state === MineState.Safe || !this.onScreen(m.x, m.y, MINE_SPRITE_R)) continue;
+      const armed = m.state === MineState.Armed;
+      const look = armed ? sprites.armed : sprites.arming;
+      ctx.globalAlpha = armed ? 0.3 * pulse : 0.4;
+      look.glow.stamp(ctx, m.x, m.y);
+      ctx.globalAlpha = 1;
+      look.body[frame].stamp(ctx, m.x, m.y);
+      ctx.globalAlpha = armed ? pulse : 1;
+      look.core.stamp(ctx, m.x, m.y);
+    }
+    ctx.globalAlpha = 1;
     if (debug) {
       ctx.strokeStyle = COLORS.debug;
       ctx.lineWidth = 0.5;
@@ -539,14 +521,8 @@ export class Renderer {
       if (!s.label) continue;
       const tl = s.age / sparkleLife(s);
       ctx.globalAlpha = Math.min(1, 3 * (1 - tl));
-      ctx.font = '700 8px system-ui, -apple-system, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
       const ly = s.y - 9 - (1 - (1 - tl) * (1 - tl)) * 14;
-      this.glow(COLORS.gold, 3);
-      ctx.fillStyle = COLORS.goldLight;
-      ctx.fillText(s.label, s.x, ly);
-      this.noGlow();
+      this.sprites!.label(s.label).stamp(ctx, s.x, ly);
     }
     ctx.globalAlpha = 1;
   }
@@ -671,4 +647,130 @@ function clampAxis(c: number, view: number, size: number, before = 0): number {
   const inset = TILE_SIZE - BORDER_VISIBLE;
   if (view >= size - 2 * inset + before) return size / 2 - before / 2;
   return Math.min(Math.max(c, inset - before + view / 2), size - inset - view / 2);
+}
+
+/** Mines have eight spikes, so they look the same every 1/8 turn. */
+const MINE_SYMMETRY = Math.PI / 4;
+/** Pictures of a mine turning through that 1/8 turn. */
+const MINE_TURN_FRAMES = 24;
+/** Reach of a mine's glow (world px). */
+const MINE_SPRITE_R = 12;
+
+/** A small picture, drawn once at a given resolution, then stamped wherever it's needed. */
+class Sprite {
+  private readonly canvas: HTMLCanvasElement;
+
+  /**
+   * `r`: how far the picture reaches from its centre, in world px.
+   * `paint` draws it in world px around (0, 0).
+   */
+  constructor(readonly r: number, pxPerUnit: number, paint: (g: CanvasRenderingContext2D, pxPerUnit: number) => void) {
+    const size = Math.ceil(2 * r * pxPerUnit);
+    this.canvas = document.createElement('canvas');
+    this.canvas.width = this.canvas.height = size;
+    const g = this.canvas.getContext('2d')!;
+    g.setTransform(pxPerUnit, 0, 0, pxPerUnit, size / 2, size / 2);
+    paint(g, pxPerUnit);
+  }
+
+  /** Draw centred at (x, y) in world px (under the world transform). */
+  stamp(ctx: CanvasRenderingContext2D, x: number, y: number): void {
+    ctx.drawImage(this.canvas, x - this.r, y - this.r, 2 * this.r, 2 * this.r);
+  }
+}
+
+/**
+ * Gold and mines, pre-drawn. Drawing them directly costs a gradient and a
+ * shadow blur (which is slow) each, every frame; with these, each is one or
+ * a few image copies, whatever the number on screen. They are redrawn when
+ * the resolution (zoom times device pixels) changes.
+ */
+class EntitySprites {
+  readonly gold: Sprite;
+  readonly armed: MineLook;
+  readonly arming: MineLook;
+  private readonly labels = new Map<string, Sprite>();
+
+  constructor(readonly pxPerUnit: number) {
+    // Gold: a glow, a tinted square with a neon edge, and a bright centre (the
+    // whole picture shimmers, by its opacity).
+    this.gold = new Sprite(12, pxPerUnit, (g, k) => {
+      const h = 4.5;
+      radialGlow(g, 0, 0, 11, COLORS.gold, 0.22);
+      g.fillStyle = 'rgba(255, 210, 63, 0.2)';
+      g.fillRect(-h, -h, h * 2, h * 2);
+      g.shadowColor = COLORS.gold;
+      g.shadowBlur = 3.5 * k;
+      g.strokeStyle = COLORS.gold;
+      g.lineWidth = 1.2;
+      g.strokeRect(-h, -h, h * 2, h * 2);
+      g.shadowBlur = 0;
+      g.fillStyle = COLORS.goldLight;
+      g.fillRect(-1.4, -1.4, 2.8, 2.8);
+    });
+    this.armed = mineLook(pxPerUnit, COLORS.mineGlow, COLORS.mineCore);
+    this.arming = mineLook(pxPerUnit, COLORS.mineArming, COLORS.mineArming);
+  }
+
+  /** A glowing text label, like the time a piece of gold adds. */
+  label(text: string): Sprite {
+    let sprite = this.labels.get(text);
+    if (!sprite) {
+      const font = '700 8px system-ui, -apple-system, sans-serif';
+      const measure = document.createElement('canvas').getContext('2d')!;
+      measure.font = font;
+      sprite = new Sprite(measure.measureText(text).width / 2 + 5, this.pxPerUnit, (g, k) => {
+        g.font = font;
+        g.textAlign = 'center';
+        g.textBaseline = 'middle';
+        g.shadowColor = COLORS.gold;
+        g.shadowBlur = 3 * k;
+        g.fillStyle = COLORS.goldLight;
+        g.fillText(text, 0, 0);
+      });
+      this.labels.set(text, sprite);
+    }
+    return sprite;
+  }
+}
+
+/** An armed (or arming) mine: its glow, its spiky body at each angle, and its core, drawn with separate opacities. */
+interface MineLook {
+  glow: Sprite;
+  body: Sprite[];
+  core: Sprite;
+}
+
+function mineLook(pxPerUnit: number, color: string, coreColor: string): MineLook {
+  const glow = new Sprite(MINE_SPRITE_R, pxPerUnit, (g) => radialGlow(g, 0, 0, MINE_SPRITE_R, color, 1));
+  const body = Array.from({ length: MINE_TURN_FRAMES }, (_, f) =>
+    new Sprite(MINE_SPRITE_R, pxPerUnit, (g, k) => {
+      const turn = (f / MINE_TURN_FRAMES) * MINE_SYMMETRY;
+      const spikes = 8;
+      g.beginPath();
+      for (let i = 0; i < spikes * 2; i++) {
+        const a = (i * Math.PI) / spikes + turn;
+        const r = i % 2 ? 3 : 5.6;
+        if (i) g.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+        else g.moveTo(Math.cos(a) * r, Math.sin(a) * r);
+      }
+      g.closePath();
+      g.fillStyle = COLORS.mine;
+      g.fill();
+      g.shadowColor = color;
+      g.shadowBlur = 3 * k;
+      g.strokeStyle = color;
+      g.lineWidth = 0.8;
+      g.stroke();
+    }),
+  );
+  const core = new Sprite(6, pxPerUnit, (g, k) => {
+    g.shadowColor = color;
+    g.shadowBlur = 3 * k;
+    g.fillStyle = coreColor;
+    g.beginPath();
+    g.arc(0, 0, 1.7, 0, Math.PI * 2);
+    g.fill();
+  });
+  return { glow, body, core };
 }
