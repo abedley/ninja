@@ -19,6 +19,9 @@
       <canvas id="game"></canvas>
 
       <div id="hud">
+        <button id="btn-menu" class="hud-btn" aria-label="Main menu" title="Main menu (Esc)">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11l8-7 8 7M6 9.5V20h4.5v-5h3v5H18V9.5" /></svg>
+        </button>
         <a id="btn-edit" class="hud-btn" href="editor/" aria-label="Back to the level editor" title="Back to the level editor" hidden>
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16zM13 7l4 4" /></svg>
         </a>
@@ -55,6 +58,7 @@
         <p>Turn your device upright to play</p>
       </div>
     </div>
+    <div id="menu" hidden></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

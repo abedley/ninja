@@ -10,11 +10,16 @@ the wall and sends it running the other way. In each level, pick up the key to
 open the exit door, avoiding the mines, and get there before the clock runs
 out. Fall too far and you die.
 
-The game is a campaign of five levels on one clock, like an N++ episode: you
+The game opens on a main menu: **Play** lists the campaigns (so far there's
+one, *Midnight City*), **High scores** shows each campaign's best runs and best
+level times, and **Level editor** opens the editor. The ⌂ button (or Esc)
+during play pauses and brings the menu back, with **Resume** at the top.
+
+A campaign is five levels on one clock, like an N++ episode: you
 start with 120 seconds, each level starts with the time left at the end of the
 one before, and each piece of gold adds two seconds. Dying (or running out of
 time) sends you back to the start of the level you're on, with the clock back
-where it was when you started it. The levels:
+where it was when you started it. Midnight City's levels:
 
 1. **First Steps**: jumps and gold.
 2. **Backtrack**: the door is next to the start, but the key is at the bottom;
@@ -56,6 +61,7 @@ Hold the phone upright.
 |---|---|---|
 | Start, jump | Tap anywhere; hold for a higher jump | Space, ↑, W, Z, X, Enter or Shift; or click |
 | Restart the level | ↺ button | R |
+| Pause, main menu | ⌂ button | Esc |
 | Physics overlay | ⓘ button | `` ` `` (backtick) |
 
 With the physics overlay on, alt-clicking drops the ninja at that spot.
@@ -110,10 +116,11 @@ python3 -I tools/golden/gen_golden.py /tmp/nclone tests/fixtures/golden.json
 
 ## Levels
 
-The campaign is the list of levels in `src/level/levels.json`, played in
-order. The first level's `"time"` is the clock the campaign starts with; the
-other levels' times are used when a level is played on its own, with
-`?level=<name>` (for example `?level=minefield`). From the second level on, a
+Every level is in `src/level/levels.json`. The campaigns on the menu are in
+`src/level/campaigns.json`: each has a name, a description, the `"time"` its
+clock starts with, and its levels by name, in order. Add a campaign there and
+it appears under Play and High scores. A level's own `"time"` is used when
+it's played on its own, with `?level=<name>` (for example `?level=minefield`). From the second level on, a
 **Start over from level 1** button on the level's title card (and after a
 death) starts a new run, in case the clock has got too low to finish.
 
@@ -155,9 +162,9 @@ game to start from. **Playtest** opens the level in the game, with a pencil
 button to come back. The draft is kept in your browser.
 
 The **Export** box holds the level as an entry for `src/level/levels.json`:
-copy it into that file's list where it should come in the campaign (replacing
-the entry with the same name, if you edited an existing level), or play it on
-its own with `?level=<name>`. Editing logic is in `src/editor/levelEdit.ts`.
+copy it into that file's list (replacing the entry with the same name, if you
+edited an existing level) and add its name to a campaign in
+`src/level/campaigns.json`, or play it on its own with `?level=<name>`. Editing logic is in `src/editor/levelEdit.ts`.
 
 ### Checking that a level can be beaten
 
@@ -179,9 +186,9 @@ the new route into the test.
 
 ```
 src/physics/   deterministic simulation: tiles -> segments, collision, ninja state machine
-src/level/     ASCII level format (legend in level.ts) and levels.json
+src/level/     ASCII level format (legend in level.ts), levels.json and campaigns.json
 src/editor/    level editor (editor/index.html)
-src/game/      game loop (fixed 60 Hz), campaign run and best times, one-button
+src/game/      game loop (fixed 60 Hz), main menu, campaign run and best times, one-button
                auto-runner, input, camera and renderer (neon style), parallax
                city backdrop, animation, death debris
 tools/golden/  reference-trace generator (needs an nclone checkout)

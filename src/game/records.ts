@@ -1,8 +1,8 @@
 /**
  * Best times, kept in the browser's storage:
  *  - for each level, the fastest clear (frames from the first tap to the door);
- *  - for the campaign, the best runs, ranked by the time left on the clock at
- *    the end (the run's score: gold adds to it), with each run's total time.
+ *  - for each campaign, the best runs, ranked by the time left on the clock
+ *    at the end (the run's score: gold adds to it), with each run's total time.
  */
 
 /** The part of the Storage API used here (so tests can pass a stand-in). */
@@ -14,7 +14,7 @@ export interface RecordStore {
 export interface RunRecord {
   /** Frames left on the clock at the end. */
   timeLeft: number;
-  /** Frames taken over all five levels (successful attempts only). */
+  /** Frames taken over all the campaign's levels (successful attempts only). */
   totalFrames: number;
   /** When the run was finished (ms since the epoch). */
   date: number;
@@ -23,7 +23,7 @@ export interface RunRecord {
 /** How many runs the campaign table keeps. */
 export const RUNS_KEPT = 5;
 const LEVEL_PREFIX = 'ninja.level-best.';
-const RUNS_KEY = 'ninja.campaign-runs';
+const RUNS_PREFIX = 'ninja.campaign-runs.';
 
 export class Records {
   constructor(private readonly store: RecordStore | null) {}
@@ -41,10 +41,10 @@ export class Records {
     return best;
   }
 
-  /** The best runs so far, best first. */
-  runs(): RunRecord[] {
+  /** A campaign's best runs so far, best first. */
+  runs(campaign: string): RunRecord[] {
     try {
-      const list = JSON.parse(this.read(RUNS_KEY) ?? '[]') as RunRecord[];
+      const list = JSON.parse(this.read(RUNS_PREFIX + campaign) ?? '[]') as RunRecord[];
       return Array.isArray(list) ? list.filter((r) => r && r.timeLeft >= 0 && r.totalFrames > 0) : [];
     } catch {
       return [];
@@ -52,11 +52,17 @@ export class Records {
   }
 
   /** Record a finished run; returns its place in the table (0 = best), or -1 if it didn't make it. */
-  submitRun(run: RunRecord): number {
-    const runs = [...this.runs(), run].sort((a, b) => b.timeLeft - a.timeLeft || a.totalFrames - b.totalFrames || a.date - b.date);
+  submitRun(campaign: string, run: RunRecord): number {
+    const runs = [...this.runs(campaign), run].sort((a, b) => b.timeLeft - a.timeLeft || a.totalFrames - b.totalFrames || a.date - b.date);
     const kept = runs.slice(0, RUNS_KEPT);
-    this.write(RUNS_KEY, JSON.stringify(kept));
+    this.write(RUNS_PREFIX + campaign, JSON.stringify(kept));
     return kept.indexOf(run);
+  }
+
+  /** Runs recorded before there was more than one campaign become this campaign's. */
+  adoptOldRuns(campaign: string): void {
+    const old = this.read('ninja.campaign-runs');
+    if (old !== null && this.read(RUNS_PREFIX + campaign) === null) this.write(RUNS_PREFIX + campaign, old);
   }
 
   private read(key: string): string | null {

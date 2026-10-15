@@ -2,7 +2,7 @@
   {
     "name": "First Steps",
     "description": "Tap to jump, hold to jump higher. Grab the key to open the door.",
-    "time": 120,
+    "time": 30,
     "rows": [
       "............",
       "..$..$..$...",

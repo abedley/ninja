@@ -1,11 +1,9 @@
+import type { Campaign } from '../level/campaigns';
 import type { LevelDef } from '../level/level';
 import { TICK_RATE } from '../physics/simulator';
 
-/** Starting clock, in seconds, for a campaign whose first level doesn't set one. */
-const DEFAULT_START_TIME = 90;
-
 /**
- * One run through the campaign: the levels in order, on one clock. The clock
+ * One run through a campaign: its levels in order, on one clock. The clock
  * carries over, so each level starts with the time left at the end of the one
  * before. A death sends the ninja back to the start of the current level, with
  * the clock back where it was when the level began.
@@ -22,9 +20,12 @@ export class CampaignRun {
   /** Whether the last level has been cleared. */
   finished = false;
 
-  constructor(readonly levels: readonly LevelDef[]) {
-    if (!levels.length) throw new Error('The campaign has no levels');
-    this.clockAtStart = (levels[0].time ?? DEFAULT_START_TIME) * TICK_RATE;
+  constructor(readonly campaign: Campaign) {
+    this.clockAtStart = campaign.time * TICK_RATE;
+  }
+
+  get levels(): readonly LevelDef[] {
+    return this.campaign.levels;
   }
 
   get level(): LevelDef {

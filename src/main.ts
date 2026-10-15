@@ -1,8 +1,11 @@
 import { CampaignRun } from './game/campaign';
+import { clockText, el, secs } from './game/format';
 import { Game, Phase } from './game/game';
 import { Input } from './game/input';
+import { Menu } from './game/menu';
 import { browserStore, Records, RUNS_KEPT } from './game/records';
 import { Renderer } from './game/renderer';
+import { CAMPAIGNS, type Campaign } from './level/campaigns';
 import { parseLevel, type LevelDef } from './level/level';
 import { LEVELS } from './level/levels';
 import { loadPlaytest, PLAYTEST_PARAM } from './level/playtest';
@@ -15,6 +18,7 @@ const hud = document.getElementById('hud')!;
 const btnRestart = document.getElementById('btn-restart')!;
 const btnDebug = document.getElementById('btn-debug')!;
 const btnFullscreen = document.getElementById('btn-fullscreen')!;
+const btnMenu = document.getElementById('btn-menu')!;
 const goldCounter = document.getElementById('gold-counter')!;
 const goldCount = document.getElementById('gold-count')!;
 const keyIndicator = document.getElementById('key-indicator')!;
@@ -23,16 +27,18 @@ const timerFill = document.getElementById('timer-fill')!;
 const timerText = document.getElementById('timer-text')!;
 const levelLabel = document.getElementById('level-label')!;
 
-// The game plays the campaign: every level in levels.json, in order, on one clock.
+// The game opens on the main menu, where you pick a campaign (campaigns.json).
 // ?level=<name> plays one level on its own; ?level=editor plays the level editor's level.
 const wanted = new URLSearchParams(location.search).get('level')?.toLowerCase();
 const playtest = wanted === PLAYTEST_PARAM ? validLevel(loadPlaytest()) : null;
 const single = playtest ?? LEVELS.find((l) => l.name.toLowerCase() === wanted) ?? null;
-let run: CampaignRun | null = single ? null : new CampaignRun(LEVELS);
+/** The campaign being played (null for a single level). */
+let run: CampaignRun | null = null;
 /** Which levels of this run set a new best time. */
 let newBests: boolean[] = [];
 // Best times aren't kept for levels being playtested from the editor.
 const records = new Records(playtest ? null : browserStore());
+records.adoptOldRuns(CAMPAIGNS[0].name);
 
 function validLevel(def: LevelDef | null): LevelDef | null {
   try {
@@ -49,7 +55,9 @@ btnEdit.hidden = !playtest;
 
 const renderer = new Renderer(canvas);
 const input = new Input(app);
-const game = run ? new Game(renderer, input, run.level, run.clockAtStart) : new Game(renderer, input, single!);
+// Behind the menu, the first level waits.
+const game = single ? new Game(renderer, input, single) : new Game(renderer, input, CAMPAIGNS[0].levels[0], CAMPAIGNS[0].time * TICK_RATE);
+const menu = new Menu(document.getElementById('menu')!, CAMPAIGNS, records);
 
 function resize(): void {
   // Let the top of the level scroll clear of the HUD (buttons, and the clock below them).
@@ -60,6 +68,7 @@ function resize(): void {
 
 input.onRestart = restartLevel;
 input.onToggleDebug = toggleDebug;
+input.onMenu = () => (menu.isOpen ? menu.back() : openMenu());
 
 function toggleDebug(): void {
   game.debug = !game.debug;
@@ -71,7 +80,7 @@ function ownTaps(el: HTMLElement): void {
   el.addEventListener('pointerdown', (e) => e.stopPropagation());
   el.addEventListener('touchstart', (e) => e.stopPropagation(), { passive: true });
 }
-for (const btn of [btnRestart, btnDebug, btnFullscreen, btnEdit]) ownTaps(btn);
+for (const btn of [btnMenu, btnRestart, btnDebug, btnFullscreen, btnEdit]) ownTaps(btn);
 
 /** Back to the start of the current level (or, once the campaign is finished, a new run). */
 function restartLevel(): void {
@@ -79,27 +88,61 @@ function restartLevel(): void {
   else game.restart();
 }
 
-/** Start the campaign again from the first level, on a full clock. */
-function newRun(): void {
-  run = new CampaignRun(LEVELS);
+/** Start a campaign from its first level, on a full clock. */
+function startRun(campaign: Campaign): void {
+  run = new CampaignRun(campaign);
   newBests = [];
+  game.loadLevel(run.level, run.clockAtStart);
+  game.onContinue = continueRun;
+  levelChanged();
+  closeMenu();
+}
+
+/** Start the current campaign again from the first level. */
+function newRun(): void {
+  if (run) startRun(run.campaign);
+}
+
+/** In a campaign, a tap after reaching the exit moves on to the next level. */
+function continueRun(): void {
+  if (!run) return;
+  if (run.finished) {
+    newRun();
+    return;
+  }
+  run.complete(game.clearFrames, game.framesLeft);
   game.loadLevel(run.level, run.clockAtStart);
   levelChanged();
 }
 
-/** In the campaign, a tap after reaching the exit moves on to the next level. */
-game.onContinue = run
-  ? () => {
-      if (!run) return;
-      if (run.finished) {
-        newRun();
-        return;
-      }
-      run.complete(game.clearFrames, game.framesLeft);
-      game.loadLevel(run.level, run.clockAtStart);
-      levelChanged();
-    }
-  : null;
+/** Whether the game loop was stopped for the menu. */
+let paused = false;
+
+function openMenu(): void {
+  // A level in play waits, frozen, until "Resume"; otherwise the ninja idles behind the menu.
+  menu.canResume = run !== null || single !== null;
+  if (game.phase === Phase.Playing) {
+    game.stop();
+    paused = true;
+  }
+  input.enabled = false;
+  app.classList.add('menu-open');
+  menu.open();
+}
+
+function closeMenu(): void {
+  menu.close();
+  app.classList.remove('menu-open');
+  input.enabled = true;
+  if (paused) {
+    paused = false;
+    game.start();
+  }
+}
+
+menu.onPlay = startRun;
+menu.onResume = closeMenu;
+btnMenu.addEventListener('click', openMenu);
 
 btnRestart.addEventListener('click', restartLevel);
 btnDebug.addEventListener('click', toggleDebug);
@@ -131,29 +174,25 @@ window.visualViewport?.addEventListener('resize', resize);
 
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) game.stop();
-  else game.start();
+  else if (!paused) game.start();
 });
 
 /** Seconds below which the clock turns red. */
 const LOW_TIME = 10;
-
-/** A time in frames, in seconds to the hundredth. */
-const secs = (frames: number) => (frames / TICK_RATE).toFixed(2);
-/** Clock time, as the HUD shows it. */
-const clockText = (frames: number) => (Math.ceil((frames / TICK_RATE) * 10) / 10).toFixed(1);
-
-function el<K extends keyof HTMLElementTagNameMap>(tag: K, text = '', className = ''): HTMLElementTagNameMap[K] {
-  const e = document.createElement(tag);
-  if (text) e.textContent = text;
-  if (className) e.className = className;
-  return e;
-}
 
 /** A button inside the message, for starting the campaign over. */
 function startOverButton(): HTMLButtonElement {
   const btn = el('button', 'Start over from level 1', 'msg-btn');
   ownTaps(btn);
   btn.addEventListener('click', newRun);
+  return btn;
+}
+
+/** A button inside the message, back to the main menu. */
+function menuButton(): HTMLButtonElement {
+  const btn = el('button', 'Main menu', 'msg-btn');
+  ownTaps(btn);
+  btn.addEventListener('click', openMenu);
   return btn;
 }
 
@@ -184,8 +223,9 @@ function onWon(): void {
 
   // The last level: the run is over.
   run.complete(frames, game.framesLeft);
-  const runsBefore = records.runs();
-  const place = records.submitRun({ timeLeft: run.finalClock, totalFrames: run.totalFrames, date: Date.now() });
+  const campaign = run.campaign.name;
+  const runsBefore = records.runs(campaign);
+  const place = records.submitRun(campaign, { timeLeft: run.finalClock, totalFrames: run.totalFrames, date: Date.now() });
   const score = el('p', `Time left ${clockText(run.finalClock)} s`, 'score');
   if (place === 0) score.append(el('span', runsBefore.length ? 'New best run!' : 'First run!', 'new-best'));
   else if (place > 0) score.append(el('span', `Your #${place + 1} run`, 'best'));
@@ -204,12 +244,12 @@ function onWon(): void {
   total.className = 'total';
   total.append(el('td', 'Total'), el('td', secs(run.totalFrames)), el('td'));
 
-  result = [el('strong', 'Campaign complete!'), score, table, runsTable(place), el('p', 'Tap to play again', 'prompt')];
+  result = [el('strong', 'Campaign complete!'), score, table, runsTable(campaign, place), el('p', 'Tap to play again', 'prompt'), menuButton()];
 }
 
 /** The best runs, highlighting the one just finished (if it made the table). */
-function runsTable(highlight: number): HTMLElement {
-  const runs = records.runs();
+function runsTable(campaign: string, highlight: number): HTMLElement {
+  const runs = records.runs(campaign);
   const box = el('div', '', 'runs');
   box.append(el('p', `Best runs (time left)`));
   const list = el('ol');
@@ -242,7 +282,7 @@ function showMessage(): void {
       const best = records.levelBest(run.level.name);
       if (run.index === 0) {
         parts.push(el('p', `Clock ${clockText(run.clockAtStart)} s for all ${run.levels.length} levels`));
-        const top = records.runs()[0];
+        const top = records.runs(run.campaign.name)[0];
         if (top) parts.push(el('p', `Best run ${clockText(top.timeLeft)} s left`, 'best'));
       } else {
         parts.push(el('p', `Clock ${clockText(run.clockAtStart)} s`));
@@ -330,3 +370,4 @@ if (import.meta.env.DEV) Object.assign(window, { game });
 levelChanged();
 game.start();
 requestAnimationFrame(updateUi);
+if (!single) openMenu();

@@ -10,7 +10,10 @@
   </head>
   <body>
     <header id="topbar">
-      <h1>Level editor</h1>
+      <div class="title">
+        <a id="btn-game" href="../" title="Back to the game's main menu">‹ Menu</a>
+        <h1>Level editor</h1>
+      </div>
       <div class="actions">
         <button id="btn-undo" title="Undo (Ctrl+Z)" disabled>Undo</button>
         <button id="btn-redo" title="Redo (Ctrl+Shift+Z)" disabled>Redo</button>
@@ -51,7 +54,7 @@
             <input id="f-timed" type="checkbox" /> Time limit
             <input id="f-time" type="number" min="1" max="999" step="1" aria-label="Time limit in seconds" /> s
           </label>
-          <p class="note">Each piece of gold adds 2 s. In the campaign the clock carries over from level to level, starting with the first level's limit; a level's own limit is used when it's played on its own.</p>
+          <p class="note">Each piece of gold adds 2 s. In a campaign the clock carries over from level to level (the campaign sets the starting time); this limit is used when the level is played on its own.</p>
         </section>
 
         <section>
@@ -78,7 +81,7 @@
 
         <section>
           <h2>Export</h2>
-          <p class="note">The game's campaign is the list in <code>src/level/levels.json</code>, played in order. Add this to it where it should come (or replace the entry with the same name). Play it on its own with <code>?level=<span id="export-name"></span></code>.</p>
+          <p class="note">Add this to the list in <code>src/level/levels.json</code> (or replace the entry with the same name), then put its name in a campaign's list in <code>src/level/campaigns.json</code> to play it from the menu. Play it on its own with <code>?level=<span id="export-name"></span></code>.</p>
           <textarea id="export" rows="10" readonly spellcheck="false"></textarea>
           <div class="row">
             <button id="btn-copy" class="primary">Copy</button>

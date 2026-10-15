@@ -2,9 +2,9 @@ import type { LevelDef } from './level';
 import levels from './levels.json';
 
 /**
- * The campaign: the game plays these levels in order, on one clock (the first
- * level's time; each level after starts with the time left at the end of the
- * one before). A level's own time is used when it's played on its own.
+ * Every level in the game. Campaigns (campaigns.json) play them in order on
+ * one clock; a level's own time is used when it's played on its own
+ * (?level=<name>, or from the level editor).
  *
  * Level data lives in levels.json so that tools can read exactly the same
  * levels as the game. See level.ts for the tile legend.

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { CampaignRun } from '../src/game/campaign';
 import { Records, RUNS_KEPT, type RecordStore } from '../src/game/records';
+import { CAMPAIGNS, resolveCampaign, type Campaign } from '../src/level/campaigns';
 import { parseLevel, type LevelDef } from '../src/level/level';
 import { LEVELS } from '../src/level/levels';
 import { NinjaState } from '../src/physics/ninja';
@@ -23,7 +24,8 @@ const ROUTES: Record<string, Plan> = {
 };
 
 describe('campaign levels', () => {
-  it('are the five levels with routes here', () => {
+  it('are every level, each with a route here', () => {
+    expect(CAMPAIGNS.flatMap((c) => c.levels.map((l) => l.name))).toEqual(Object.keys(ROUTES));
     expect(LEVELS.map((l) => l.name)).toEqual(Object.keys(ROUTES));
   });
 
@@ -44,7 +46,7 @@ describe('campaign levels', () => {
   }
 
   it('can all be finished on one clock, carried over from level to level', () => {
-    const run = new CampaignRun(LEVELS);
+    const run = new CampaignRun(CAMPAIGNS[0]);
     while (!run.finished) {
       const level = parseLevel(run.level);
       let start = 0;
@@ -67,10 +69,11 @@ describe('campaign levels', () => {
 });
 
 const tiny = (name: string, time?: number): LevelDef => ({ name, time, rows: ['N.KD'] });
+const campaign = (time: number, ...levels: LevelDef[]): Campaign => ({ name: 'c', time, levels });
 
 describe('a campaign run', () => {
-  it('starts on the first level with its time, and carries the clock over', () => {
-    const run = new CampaignRun([tiny('a', 50), tiny('b', 10), tiny('c')]);
+  it("starts on the first level with the campaign's time, and carries the clock over", () => {
+    const run = new CampaignRun(campaign(50, tiny('a', 20), tiny('b', 10), tiny('c')));
     expect(run.level.name).toBe('a');
     expect(run.clockAtStart).toBe(50 * TICK_RATE);
     run.complete(600, 2400);
@@ -90,8 +93,14 @@ describe('a campaign run', () => {
     expect(run.levelFrames).toHaveLength(3);
   });
 
-  it('has a default clock if the first level has none', () => {
-    expect(new CampaignRun([tiny('a')]).clockAtStart).toBe(90 * TICK_RATE);
+});
+
+describe('campaigns.json', () => {
+  it('names levels from levels.json', () => {
+    const levels = [tiny('a'), tiny('b')];
+    expect(resolveCampaign({ name: 'c', time: 9, levels: ['b', 'a'] }, levels).levels).toEqual([levels[1], levels[0]]);
+    expect(() => resolveCampaign({ name: 'c', time: 9, levels: ['a', 'x'] }, levels)).toThrow(/"x"/);
+    expect(() => resolveCampaign({ name: 'c', time: 9, levels: [] }, levels)).toThrow(/no levels/);
   });
 });
 
@@ -115,27 +124,42 @@ describe('records', () => {
   it(`rank runs by time left, keeping the best ${RUNS_KEPT}`, () => {
     const records = new Records(memoryStore());
     const run = (timeLeft: number, totalFrames = 6000) => ({ timeLeft, totalFrames, date: timeLeft });
-    expect(records.submitRun(run(1000))).toBe(0);
-    expect(records.submitRun(run(3000))).toBe(0);
-    expect(records.submitRun(run(2000))).toBe(1);
+    expect(records.submitRun('c', run(1000))).toBe(0);
+    expect(records.submitRun('c', run(3000))).toBe(0);
+    expect(records.submitRun('c', run(2000))).toBe(1);
     // Ties go to the faster run.
-    expect(records.submitRun(run(2000, 5000))).toBe(1);
-    for (const t of [500, 400]) records.submitRun(run(t));
-    expect(records.runs().map((r) => r.timeLeft)).toEqual([3000, 2000, 2000, 1000, 500]);
-    expect(records.submitRun(run(100))).toBe(-1);
-    expect(records.runs()).toHaveLength(RUNS_KEPT);
+    expect(records.submitRun('c', run(2000, 5000))).toBe(1);
+    for (const t of [500, 400]) records.submitRun('c', run(t));
+    expect(records.runs('c').map((r) => r.timeLeft)).toEqual([3000, 2000, 2000, 1000, 500]);
+    expect(records.submitRun('c', run(100))).toBe(-1);
+    expect(records.runs('c')).toHaveLength(RUNS_KEPT);
+    // Each campaign has its own table.
+    expect(records.runs('d')).toEqual([]);
+  });
+
+  it('give runs from before campaigns had names to the first campaign', () => {
+    const store = memoryStore();
+    const old = JSON.stringify([{ timeLeft: 900, totalFrames: 6000, date: 1 }]);
+    store.data.set('ninja.campaign-runs', old);
+    const records = new Records(store);
+    records.adoptOldRuns('c');
+    expect(records.runs('c').map((r) => r.timeLeft)).toEqual([900]);
+    // Only once: later runs aren't overwritten.
+    records.submitRun('c', { timeLeft: 1000, totalFrames: 6000, date: 2 });
+    records.adoptOldRuns('c');
+    expect(records.runs('c')).toHaveLength(2);
   });
 
   it('work without storage, and survive broken data', () => {
     const none = new Records(null);
     expect(none.submitLevel('a', 5)).toBeNull();
     expect(none.levelBest('a')).toBeNull();
-    expect(none.submitRun({ timeLeft: 1, totalFrames: 1, date: 0 })).toBe(0);
+    expect(none.submitRun('c', { timeLeft: 1, totalFrames: 1, date: 0 })).toBe(0);
     const store = memoryStore();
-    store.data.set('ninja.campaign-runs', '{not json');
+    store.data.set('ninja.campaign-runs.c', '{not json');
     store.data.set('ninja.level-best.a', 'nope');
     const records = new Records(store);
-    expect(records.runs()).toEqual([]);
+    expect(records.runs('c')).toEqual([]);
     expect(records.levelBest('a')).toBeNull();
   });
 });

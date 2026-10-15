@@ -12,6 +12,9 @@ export class Input {
 
   onRestart: (() => void) | null = null;
   onToggleDebug: (() => void) | null = null;
+  onMenu: (() => void) | null = null;
+  /** Off while a menu is open: nothing counts as a jump, and keys work as usual on the page. */
+  enabled = true;
 
   constructor(surface: HTMLElement) {
     window.addEventListener('keydown', this.onKeyDown);
@@ -28,6 +31,10 @@ export class Input {
 
   /** Whether jump is held this frame. Consumes the press latch. */
   takeJump(): boolean {
+    if (!this.enabled) {
+      this.latch = false;
+      return false;
+    }
     const held = this.held || this.latch;
     this.latch = false;
     return held;
@@ -40,6 +47,11 @@ export class Input {
   private onKeyDown = (e: KeyboardEvent): void => {
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     const code = e.code;
+    if (code === 'Escape' && !e.repeat) {
+      this.onMenu?.();
+      return;
+    }
+    if (!this.enabled) return;
     if (JUMP_KEYS.has(code)) {
       if (!e.repeat && !this.keys.has(code)) this.latch = true;
       this.keys.add(code);
@@ -59,7 +71,7 @@ export class Input {
 
   private onPointerDown = (e: PointerEvent): void => {
     // Alt-click is reserved for the debug teleport.
-    if ((e.pointerType === 'mouse' && e.button !== 0) || e.altKey) return;
+    if ((e.pointerType === 'mouse' && e.button !== 0) || e.altKey || !this.enabled) return;
     this.pointers.add(e.pointerId);
     this.latch = true;
     (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);

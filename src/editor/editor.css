@@ -114,6 +114,22 @@ code {
   background: var(--panel);
 }
 
+#topbar .title {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+#btn-game {
+  color: var(--neon);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+#btn-game:hover {
+  text-shadow: 0 0 8px var(--neon);
+}
+
 #topbar h1 {
   margin: 0;
   font-size: 17px;
