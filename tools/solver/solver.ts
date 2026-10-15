@@ -14,7 +14,8 @@ import type { TileMap } from '../../src/physics/tileMap';
  * controls; the plans it finds are replayed by tests/campaign.test.ts.
  *
  * A plan is a list of presses, each [frames released before it, frames held].
- * Play starts (the ninja starts running) after 20 frames of settling.
+ * The plan starts with the tap that starts the level: as in the game, the
+ * physics doesn't run before it (the ninja hangs at the spawn point).
  */
 export type Plan = [gap: number, hold: number][];
 
@@ -33,8 +34,6 @@ interface Node {
 
 const GAPS = [1, 4, 8, 13, 19, 26, 35, 46, 60, 80];
 const HOLDS = [3, 9, 16, 25, 35, 46];
-/** Frames to settle at the spawn point before play starts. */
-export const SETTLE_FRAMES = 20;
 
 function cloneNinja(n: Ninja): Ninja {
   return Object.assign(Object.create(Ninja.prototype) as Ninja, n);
@@ -121,7 +120,6 @@ export function solve(level: Level, opts: { goalY?: number; beam?: number; maxPr
     if (door) door.open = node.hasKey;
   };
   const saveMines = () => sim.mines.map((m) => m.state);
-  for (let i = 0; i < SETTLE_FRAMES; i++) sim.tick(0, false);
   let beam: Node[] = [{ ninja: cloneNinja(sim.ninja), runner: new AutoRunner(sim.ninja, level.facing), mines: saveMines(), hasKey: false, frame: 0, bestDist: Infinity, bestY: sim.ninja.ypos, plan: [] }];
   let bestY = sim.ninja.ypos;
   const keyGoal = key && goal(level.map, key);
@@ -184,7 +182,6 @@ function score(node: Node, target: Goal | null): number {
  */
 export function replay(level: Level, plan: Plan, onFrame?: (sim: Simulator) => void, clock?: number): Simulator {
   const sim = new Simulator(level.map, level.spawnX, level.spawnY, level);
-  for (let i = 0; i < SETTLE_FRAMES; i++) sim.tick(0, false);
   if (clock !== undefined) sim.timeLeft = clock;
   else if (level.time !== undefined) sim.timeLeft = level.time * TICK_RATE;
   const runner = new AutoRunner(sim.ninja, level.facing);

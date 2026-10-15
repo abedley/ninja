@@ -186,8 +186,9 @@ export class Game {
     if (this.phase === Phase.Playing) {
       this.sim.tick(...this.runner.control(ninja, jump));
       this.runner.update(ninja);
-    } else {
-      // Waiting for the first tap (let the ninja settle at the spawn point), or celebrating.
+    } else if (this.phase !== Phase.Ready) {
+      // Celebrating: the ninja carries on moving, without input.
+      // (While waiting for the first tap, nothing moves: the ninja hangs at the spawn point.)
       this.sim.tick(0, false);
     }
     this.animator.update(ninja);

@@ -137,7 +137,7 @@ export function parseLevel(def: LevelDef): Level {
   return {
     name: def.name,
     map: new TileMap(width, height, tiles),
-    // Spawn in the centre of the marked tile; the ninja then settles onto the floor.
+    // Spawn in the centre of the marked tile (2 px above a floor); it drops once play starts.
     spawnX: sx * TILE_SIZE + TILE_SIZE / 2,
     spawnY: sy * TILE_SIZE + TILE_SIZE / 2,
     facing,
