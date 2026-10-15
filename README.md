@@ -4,7 +4,8 @@ A one-button, portrait mobile game built on an exact copy of the physics of
 Metanet Software's *N: The Way of the Ninja*.
 
 The ninja runs by itself; you only jump. It keeps running the way it's going
-until it hits a wall: on the ground, a wall turns it around; in the air, it
+until it hits a wall: on the ground, a wall (or anything else it can't get
+past, like a sloping ceiling it's wedged under) turns it around; in the air, it
 clings to the wall it hit and slides down until you tap, which kicks it off
 the wall and sends it running the other way. In each level, pick up the key to
 open the exit door, avoiding the mines, and get there before the clock runs

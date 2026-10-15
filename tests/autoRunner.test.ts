@@ -70,6 +70,26 @@ describe('auto-runner', () => {
     expect(kicked.sim.ninja.xspeed).toBeLessThan(0);
   });
 
+  it('turns around when wedged under a sloping ceiling, where there is no wall to hit', () => {
+    // z: a 45° ceiling coming down to the floor; j and f/b: steep and mild ones; y: running left.
+    for (const rows of [['........', 'N......z'], ['........', 'N......j'], ['........', 'N.....fb'], ['........', 'y......<']]) {
+      const { log } = run(rows, 300);
+      const start = log[0].dir;
+      const turn = log.findIndex((e) => e.dir !== start);
+      expect(turn, rows.join('/')).toBeGreaterThan(0);
+      // It was stuck, not still moving, when it turned, and it then runs back the other way.
+      expect(Math.abs(log[turn].x - log[turn - 6].x), rows.join('/')).toBeLessThan(1);
+      expect((log[turn + 40].x - log[turn].x) * start, rows.join('/')).toBeLessThan(-20);
+    }
+  });
+
+  it("doesn't turn while setting off, or running up a slope it can climb", () => {
+    // Up to the top of the ramp (where it's launched up the wall).
+    const { log } = run(['......#', '.....##', 'N.../##'], 66);
+    expect(Math.max(...log.map((e) => e.x))).toBeGreaterThan(130);
+    expect(log.every((e) => e.dir === 1)).toBe(true);
+  });
+
   it('starts running left from a spawn facing left (<)', () => {
     const { log } = run(['.......<'], 30);
     expect(log[0].dir).toBe(-1);

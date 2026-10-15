@@ -1,10 +1,21 @@
 import type { HorInput, Ninja } from '../physics/ninja';
 
 /**
+ * On the ground, moving less than this (px per frame) in the running
+ * direction for STUCK_FRAMES frames in a row means the ninja can't go any
+ * further that way. (Setting off from standing still, it's past this from the
+ * second frame.)
+ */
+const MIN_PROGRESS = 0.05;
+const STUCK_FRAMES = 6;
+
+/**
  * One-button control: the ninja always runs, and the player only jumps.
  *
  * The running direction is set by the last wall the ninja hit:
- *  - running into a wall on the ground turns it around;
+ *  - running into a wall on the ground turns it around, and so does anything
+ *    else that stops it getting any further on the ground (being wedged under
+ *    a sloping ceiling, or pushed back down a slope too steep to run up);
  *  - in the air it keeps pushing into the wall it hit, so it clings and slides
  *    down; jumping off the wall sends it the other way.
  */
@@ -12,6 +23,8 @@ export class AutoRunner {
   dir: -1 | 1;
   private wasHeld = false;
   private seenWallJumps: number;
+  /** Frames in a row the ninja has been on the ground without getting anywhere. */
+  private stuckFrames = 0;
 
   constructor(ninja: Ninja, dir: -1 | 1 = 1) {
     this.dir = dir;
@@ -41,6 +54,12 @@ export class AutoRunner {
       this.dir = away(ninja.wallNormal);
     } else if (ninja.walled && !ninja.airborn) {
       this.dir = away(ninja.wallNormal);
+    }
+    const progress = (ninja.xpos - ninja.xposOld) * this.dir;
+    this.stuckFrames = !ninja.airborn && progress < MIN_PROGRESS ? this.stuckFrames + 1 : 0;
+    if (this.stuckFrames >= STUCK_FRAMES) {
+      this.dir = this.dir === 1 ? -1 : 1;
+      this.stuckFrames = 0;
     }
   }
 
