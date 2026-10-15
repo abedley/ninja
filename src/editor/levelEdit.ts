@@ -31,11 +31,19 @@ export function setCell(def: LevelDef, x: number, y: number, ch: string): LevelD
   return setCells(def, [[x, y]], ch);
 }
 
-/** Set many cells to one character (the unique ones: only the last cell gets it). */
+/**
+ * Set many cells to one character (the unique ones: only the last cell gets
+ * it). Erasing (".") also removes the coordinate-placed gold and mines inside
+ * those cells.
+ */
 export function setCells(def: LevelDef, cells: readonly [number, number][], ch: string): LevelDef {
   const { width, height } = size(def);
   const inside = cells.filter(([x, y]) => x >= 0 && y >= 0 && x < width && y < height);
   if (!inside.length) return def;
+  if (ch === EMPTY) {
+    const erased = new Set(inside.map(([x, y]) => `${x},${y}`));
+    def = withoutExtras(def, ([ux, uy]) => erased.has(`${Math.floor(ux / UNITS_PER_TILE) - 1},${Math.floor(uy / UNITS_PER_TILE) - 1}`));
+  }
   const grid = def.rows.map((r) => r.split(''));
   const unique = UNIQUE.find((group) => group.includes(ch));
   if (unique) {
@@ -47,6 +55,57 @@ export function setCells(def: LevelDef, cells: readonly [number, number][], ch: 
   }
   const rows = grid.map((r) => r.join(''));
   return rows.every((r, i) => r === def.rows[i]) ? def : { ...def, rows };
+}
+
+/** Entities that can be placed in a quarter of a tile (by coordinates, in the level's lists). */
+export type QuarterKind = 'mines' | 'toggleMines';
+const QUARTER_KINDS: QuarterKind[] = ['mines', 'toggleMines'];
+
+/**
+ * Put a mine (or toggle mine, or nothing: null) in quarters of tiles. Quarters
+ * are given in half-tile steps across the level's rows: (2x + 0 or 1, 2y + 0 or
+ * 1) for the left/right, top/bottom quarter of the tile at (x, y). A quarter
+ * holds one thing, so placing replaces whatever was there.
+ */
+export function setQuarters(def: LevelDef, quarters: readonly [number, number][], kind: QuarterKind | null): LevelDef {
+  const { width, height } = size(def);
+  const taken = new Map<string, [number, number]>();
+  for (const [hx, hy] of quarters) {
+    if (hx < 0 || hy < 0 || hx >= 2 * width || hy >= 2 * height) continue;
+    const p: [number, number] = [quarterCentre(hx), quarterCentre(hy)];
+    taken.set(`${p[0]},${p[1]}`, p);
+  }
+  if (!taken.size) return def;
+  const out: LevelDef = { ...def };
+  for (const k of QUARTER_KINDS) {
+    const before = def[k] ?? [];
+    let list = before.filter(([x, y]) => !taken.has(`${x},${y}`));
+    if (k === kind) list = [...list, ...taken.values()];
+    list.sort((a, b) => a[1] - b[1] || a[0] - b[0]);
+    if (list.length === before.length && list.every(([x, y], i) => x === before[i][0] && y === before[i][1])) continue;
+    if (list.length) out[k] = list;
+    else delete out[k];
+  }
+  return QUARTER_KINDS.every((k) => out[k] === def[k]) ? def : out;
+}
+
+/** The centre of a quarter, in entity units, from its half-tile index (the border is one tile). */
+function quarterCentre(h: number): number {
+  return UNITS_PER_TILE + 2 * h + 1;
+}
+
+/** The level without the coordinate-placed gold and mines for which `drop` is true. */
+function withoutExtras(def: LevelDef, drop: (p: [number, number]) => boolean): LevelDef {
+  let out = def;
+  for (const k of ['gold', 'mines', 'toggleMines'] as const) {
+    const list = def[k];
+    if (!list?.some(drop)) continue;
+    if (out === def) out = { ...def };
+    const kept = list.filter((p) => !drop(p));
+    if (kept.length) out[k] = kept;
+    else delete out[k];
+  }
+  return out;
 }
 
 /** All cells in the rectangle between two corners (inclusive). */
@@ -84,10 +143,15 @@ export function resize(def: LevelDef, edge: Edge, count: number): LevelDef {
   } else {
     rows = rows.map((r) => (edge === 'left' ? r.slice(-n) : r.slice(0, r.length + n)));
   }
-  const out: LevelDef = { ...def, rows };
-  if (edge === 'top') return shiftExtras(out, 0, n);
-  if (edge === 'left') return shiftExtras(out, n, 0);
-  return out;
+  let out: LevelDef = { ...def, rows };
+  if (edge === 'top') out = shiftExtras(out, 0, n);
+  if (edge === 'left') out = shiftExtras(out, n, 0);
+  // Gold and mines left outside a smaller level go.
+  const w = rows[0].length;
+  const h = rows.length;
+  const outside = ([x, y]: [number, number]) =>
+    x < UNITS_PER_TILE || y < UNITS_PER_TILE || x > UNITS_PER_TILE * (w + 1) || y > UNITS_PER_TILE * (h + 1);
+  return n < 0 ? withoutExtras(out, outside) : out;
 }
 
 /** Move coordinate-placed entities by whole tiles. */

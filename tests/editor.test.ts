@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { blankLevel, check, exportText, importText, rectCells, resize, setCell, setCells, size } from '../src/editor/levelEdit';
+import { blankLevel, check, exportText, importText, rectCells, resize, setCell, setCells, setQuarters, size } from '../src/editor/levelEdit';
 import { parseLevel, type LevelDef } from '../src/level/level';
 import { LEVELS } from '../src/level/levels';
 
@@ -37,6 +37,34 @@ describe('level editor operations', () => {
     def = setCell(def, 0, 0, '<');
     expect(def.rows).toEqual(['<D..', '..K.']);
     expect(setCell(def, 1, 1, 'N').rows).toEqual(['.D..', '.NK.']);
+  });
+
+  it('puts mines in quarters of tiles, up to four per tile', () => {
+    const def = tiny(['N...', '....']);
+    // Half-tile steps: tile (1, 0) has quarters (2..3, 0..1).
+    const four = setQuarters(def, [[2, 0], [3, 0], [2, 1], [3, 1]], 'mines');
+    // Entity units: the tile spans 8..12 across (the border is 0..4) and 4..8 down.
+    expect(four.mines).toEqual([[9, 5], [11, 5], [9, 7], [11, 7]]);
+    expect(def.mines).toBeUndefined();
+    const level = parseLevel(four);
+    expect(level.mines.map((m) => [m.x, m.y])).toEqual([[54, 30], [66, 30], [54, 42], [66, 42]]);
+    // Placing the same again changes nothing; a toggle mine replaces the mine in its quarter.
+    expect(setQuarters(four, [[2, 0], [2, 0]], 'mines')).toBe(four);
+    const swapped = setQuarters(four, [[3, 1]], 'toggleMines');
+    expect(swapped.mines).toEqual([[9, 5], [11, 5], [9, 7]]);
+    expect(swapped.toggleMines).toEqual([[11, 7]]);
+    // Erasing one quarter, then the whole tile.
+    expect(setQuarters(swapped, [[2, 0]], null).mines).toEqual([[11, 5], [9, 7]]);
+    const erased = setCell(swapped, 1, 0, '.');
+    expect(erased.mines).toBeUndefined();
+    expect(erased.toggleMines).toBeUndefined();
+    // Outside the level is ignored.
+    expect(setQuarters(def, [[8, 0], [-1, 0]], 'mines')).toBe(def);
+    // Shrinking the level drops the ones left outside it.
+    expect(resize(four, 'left', -2).mines).toBeUndefined();
+    expect(resize(four, 'right', -2).mines).toHaveLength(4);
+    // And they're exported, and load back the same.
+    expect(importText(exportText(four))).toEqual(four);
   });
 
   it('fills rectangles', () => {

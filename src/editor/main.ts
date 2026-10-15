@@ -5,7 +5,7 @@ import { PLAYTEST_PARAM, savePlaytest } from '../level/playtest';
 import { CircularSegment, LinearSegment } from '../physics/geometry';
 import { GREASED_TILE, TILE_SIZE } from '../physics/tileDefs';
 import { TileMap } from '../physics/tileMap';
-import { blankLevel, check, exportText, importText, rectCells, resize, setCells, size, type Edge } from './levelEdit';
+import { blankLevel, check, exportText, importText, rectCells, resize, setCells, setQuarters, size, type Edge, type QuarterKind } from './levelEdit';
 
 /**
  * The level editor (served at /editor/). Paint tiles and entities on the
@@ -34,7 +34,12 @@ const COLORS = {
 interface Tool {
   ch: string;
   label: string;
+  /** Places this in a quarter of a tile (by coordinates) rather than filling the tile. */
+  quarter?: QuarterKind;
 }
+
+/** A tool's id, for its palette button. */
+const toolId = (t: Tool) => (t.quarter ? `q${t.ch}` : t.ch);
 
 const TOOL_GROUPS: { title: string; tools: Tool[] }[] = [
   {
@@ -45,6 +50,8 @@ const TOOL_GROUPS: { title: string; tools: Tool[] }[] = [
       { ch: '$', label: 'Gold (+2 s)' },
       { ch: '*', label: 'Mine' },
       { ch: '%', label: 'Toggle mine (safe until touched)' },
+      { ch: '*', label: 'Mine in a quarter of a tile (up to four per tile)', quarter: 'mines' },
+      { ch: '%', label: 'Toggle mine in a quarter of a tile (up to four per tile)', quarter: 'toggleMines' },
       { ch: 'K', label: 'Key (opens the door)' },
       { ch: 'D', label: 'Exit door' },
     ],
@@ -129,9 +136,14 @@ let tool: Tool = ALL_TOOLS[1];
 let zoom = 28;
 const undoStack: LevelDef[] = [];
 const redoStack: LevelDef[] = [];
+/** The tile (or, for a quarter-tile tool, half tile) under the pointer. */
 let hover: [number, number] | null = null;
-/** The stroke in progress: the character painted, its last cell, and (shift-drag) the rectangle's first corner. */
-let stroke: { ch: string; last: [number, number]; rectFrom: [number, number] | null; before: LevelDef } | null = null;
+/**
+ * The stroke in progress: the tool, whether it erases (right button), its last
+ * position and (shift-drag) the rectangle's first corner. Positions are in
+ * tiles, or in half tiles for a quarter-tile tool.
+ */
+let stroke: { tool: Tool; erase: boolean; last: [number, number]; rectFrom: [number, number] | null; before: LevelDef } | null = null;
 
 // ---------------------------------------------------------------- state
 
@@ -318,9 +330,9 @@ function buildPalette(): void {
     for (const t of group.tools) {
       const btn = document.createElement('button');
       btn.className = 'tool';
-      btn.title = `${t.label}  (${t.ch})`;
+      btn.title = t.quarter ? t.label : `${t.label}  (${t.ch})`;
       btn.setAttribute('aria-label', t.label);
-      btn.dataset.ch = t.ch;
+      btn.dataset.tool = toolId(t);
       const icon = document.createElement('canvas');
       const px = 32;
       const dpr = Math.min(window.devicePixelRatio || 1, 3);
@@ -330,7 +342,12 @@ function buildPalette(): void {
       g.scale(dpr, dpr);
       g.fillStyle = COLORS.bg;
       g.fillRect(0, 0, px, px);
-      drawCell(g, t.ch, 4, 4, 24, true);
+      if (t.quarter) {
+        // Four small ones, one in each quarter.
+        for (const [qx, qy] of [[0, 0], [1, 0], [0, 1], [1, 1]]) drawCell(g, t.ch, 4 + qx * 12, 4 + qy * 12, 12, true);
+      } else {
+        drawCell(g, t.ch, 4, 4, 24, true);
+      }
       btn.append(icon);
       btn.addEventListener('click', () => selectTool(t));
       grid.append(btn);
@@ -342,7 +359,7 @@ function buildPalette(): void {
 
 function selectTool(t: Tool): void {
   tool = t;
-  for (const b of document.querySelectorAll<HTMLButtonElement>('.tool')) b.setAttribute('aria-pressed', String(b.dataset.ch === t.ch));
+  for (const b of document.querySelectorAll<HTMLButtonElement>('.tool')) b.setAttribute('aria-pressed', String(b.dataset.tool === toolId(t)));
   $('status-tool').textContent = t.label;
 }
 
@@ -575,21 +592,44 @@ function draw(): void {
     for (let x = 0; x < width; x++) drawCell(ctx, row[x], (x + 1) * zoom, (y + 1) * zoom, zoom);
   });
 
+  // Gold and mines placed by coordinates (N++ entity units: 4 per tile, from the outer edge of the border).
+  const unit = zoom / 4;
+  const placed: [string, [number, number][] | undefined, number][] = [
+    ['$', def.gold, zoom],
+    ['*', def.mines, zoom * 0.8],
+    ['%', def.toggleMines, zoom * 0.8],
+    ['D', def.exit && [def.exit.door], zoom],
+    ['K', def.exit && [def.exit.key], zoom],
+  ];
+  for (const [ch, list, s] of placed) {
+    for (const [ux, uy] of list ?? []) drawCell(ctx, ch, ux * unit - s / 2, uy * unit - s / 2, s);
+  }
+
   // What the next click would do.
+  const step = (stroke?.tool ?? tool).quarter ? zoom / 2 : zoom;
   const cells = stroke?.rectFrom && hover ? rectCells(...stroke.rectFrom, ...hover) : hover ? [hover] : [];
   ctx.strokeStyle = COLORS.hover;
   ctx.lineWidth = 2;
-  for (const [x, y] of cells) ctx.strokeRect((x + 1) * zoom + 1, (y + 1) * zoom + 1, zoom - 2, zoom - 2);
+  for (const [x, y] of cells) ctx.strokeRect(zoom + x * step + 1, zoom + y * step + 1, step - 2, step - 2);
 }
 
 // ---------------------------------------------------------------- painting
 
-function cellAt(e: PointerEvent): [number, number] | null {
+/** The tile under the pointer, or the half tile for a quarter-tile tool (`quarter`). */
+function gridAt(e: PointerEvent, quarter = false): [number, number] | null {
   const r = canvas.getBoundingClientRect();
-  const x = Math.floor((e.clientX - r.left) / zoom) - 1;
-  const y = Math.floor((e.clientY - r.top) / zoom) - 1;
+  const step = quarter ? zoom / 2 : zoom;
+  const x = Math.floor((e.clientX - r.left - zoom) / step);
+  const y = Math.floor((e.clientY - r.top - zoom) / step);
+  const k = quarter ? 2 : 1;
   const { width, height } = size(def);
-  return x >= 0 && y >= 0 && x < width && y < height ? [x, y] : null;
+  return x >= 0 && y >= 0 && x < width * k && y < height * k ? [x, y] : null;
+}
+
+/** Paint (or erase) with a tool at some positions: tiles, or half tiles for a quarter-tile tool. */
+function paint(d: LevelDef, t: Tool, erase: boolean, at: [number, number][]): LevelDef {
+  if (t.quarter) return setQuarters(d, at, erase ? null : t.quarter);
+  return setCells(d, at, erase ? '.' : t.ch);
 }
 
 /** Cells on the line between two cells, so fast drags don't leave gaps. */
@@ -611,15 +651,14 @@ btnScroll.addEventListener('click', () => {
 
 canvas.addEventListener('pointerdown', (e) => {
   if (scrollMode && e.pointerType !== 'mouse') return;
-  const cell = cellAt(e);
-  if (!cell || (e.pointerType === 'mouse' && e.button !== 0 && e.button !== 2)) return;
+  const at = gridAt(e, !!tool.quarter);
+  if (!at || (e.pointerType === 'mouse' && e.button !== 0 && e.button !== 2)) return;
   e.preventDefault();
   canvas.setPointerCapture(e.pointerId);
-  const ch = e.button === 2 ? '.' : tool.ch;
-  stroke = { ch, last: cell, rectFrom: e.shiftKey ? cell : null, before: def };
-  hover = cell;
+  stroke = { tool, erase: e.button === 2, last: at, rectFrom: e.shiftKey ? at : null, before: def };
+  hover = at;
   if (!stroke.rectFrom) {
-    def = setCells(def, [cell], ch);
+    def = paint(def, tool, stroke.erase, [at]);
     changed();
   } else {
     draw();
@@ -627,12 +666,15 @@ canvas.addEventListener('pointerdown', (e) => {
 });
 
 canvas.addEventListener('pointermove', (e) => {
-  const cell = cellAt(e);
-  hover = cell;
-  $('status-cell').textContent = cell ? `column ${cell[0] + 1}, row ${size(def).height - cell[1]} from the bottom` : '';
-  if (stroke && cell && !stroke.rectFrom && (cell[0] !== stroke.last[0] || cell[1] !== stroke.last[1])) {
-    def = setCells(def, lineCells(stroke.last, cell), stroke.ch);
-    stroke.last = cell;
+  const quarter = !!(stroke?.tool ?? tool).quarter;
+  const at = gridAt(e, quarter);
+  hover = at;
+  const cell = gridAt(e);
+  const corner = at && quarter ? ` (${at[1] % 2 ? 'bottom' : 'top'} ${at[0] % 2 ? 'right' : 'left'} quarter)` : '';
+  $('status-cell').textContent = cell ? `column ${cell[0] + 1}, row ${size(def).height - cell[1]} from the bottom${corner}` : '';
+  if (stroke && at && !stroke.rectFrom && (at[0] !== stroke.last[0] || at[1] !== stroke.last[1])) {
+    def = paint(def, stroke.tool, stroke.erase, lineCells(stroke.last, at));
+    stroke.last = at;
     changed();
   } else {
     draw();
@@ -641,7 +683,7 @@ canvas.addEventListener('pointermove', (e) => {
 
 function endStroke(): void {
   if (!stroke) return;
-  if (stroke.rectFrom && hover) def = setCells(def, rectCells(...stroke.rectFrom, ...hover), stroke.ch);
+  if (stroke.rectFrom && hover) def = paint(def, stroke.tool, stroke.erase, rectCells(...stroke.rectFrom, ...hover));
   const before = stroke.before;
   stroke = null;
   if (def !== before) {
