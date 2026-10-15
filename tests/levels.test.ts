@@ -21,6 +21,7 @@ describe('level parser', () => {
     expect(() => parseLevel({ name: 'x', rows: ['N..', '##'] })).toThrow(/expected 3/);
     expect(() => parseLevel({ name: 'x', rows: ['N.?'] })).toThrow(/unknown tile/);
     expect(() => parseLevel({ name: 'x', rows: ['...'] })).toThrow(/no spawn/);
+    expect(() => parseLevel({ name: 'x', rows: ['N.<'] })).toThrow(/more than one spawn/);
   });
 
   it('places gold from $ tiles and from N++ entity coordinates', () => {

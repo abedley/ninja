@@ -29,9 +29,9 @@ export class NinjaAnimator {
   /** Vertical speed, used for the in-air pose. */
   airRate = 0;
 
-  reset(): void {
+  reset(facing: 1 | -1 = 1): void {
     this.state = AnimState.Idle;
-    this.facing = 1;
+    this.facing = facing;
     this.tilt = 0;
     this.runCycle = 0;
     this.frameResidual = 0;

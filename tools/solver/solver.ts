@@ -20,7 +20,7 @@ export type Plan = [gap: number, hold: number][];
 
 interface Node {
   ninja: Ninja;
-  dir: -1 | 1;
+  runner: AutoRunner;
   /** Toggle mines remember being touched, so their states are part of the search state. */
   mines: MineState[];
   hasKey: boolean;
@@ -41,10 +41,11 @@ function cloneNinja(n: Ninja): Ninja {
 }
 
 /** Run `frames` frames from a node's state; returns false if the ninja died. */
-function advance(node: Node, frames: number, held: boolean, firstPressed: boolean, sim: Simulator, runner: AutoRunner, target: () => Goal | null): boolean {
+function advance(node: Node, frames: number, held: boolean, sim: Simulator, target: () => Goal | null): boolean {
+  const runner = node.runner;
   for (let i = 0; i < frames; i++) {
     const n = sim.ninja;
-    sim.tick(runner.input(n, held && i === 0 && firstPressed), held);
+    sim.tick(...runner.control(n, held));
     runner.update(n);
     node.frame++;
     if (n.ypos < node.bestY) node.bestY = n.ypos;
@@ -120,7 +121,7 @@ export function solve(level: Level, opts: { goalY?: number; beam?: number; maxPr
   };
   const saveMines = () => sim.mines.map((m) => m.state);
   for (let i = 0; i < SETTLE_FRAMES; i++) sim.tick(0, false);
-  let beam: Node[] = [{ ninja: cloneNinja(sim.ninja), dir: 1, mines: saveMines(), hasKey: false, frame: 0, bestDist: Infinity, bestY: sim.ninja.ypos, plan: [] }];
+  let beam: Node[] = [{ ninja: cloneNinja(sim.ninja), runner: new AutoRunner(sim.ninja, level.facing), mines: saveMines(), hasKey: false, frame: 0, bestDist: Infinity, bestY: sim.ninja.ypos, plan: [] }];
   let bestY = sim.ninja.ypos;
   const keyGoal = key && goal(level.map, key);
   const doorGoal = door && goal(level.map, door);
@@ -132,25 +133,23 @@ export function solve(level: Level, opts: { goalY?: number; beam?: number; maxPr
     for (const node of beam) {
       for (const gap of GAPS) {
         for (const hold of HOLDS) {
-          const child: Node = { ...node, ninja: cloneNinja(node.ninja), plan: [...node.plan, [gap, hold]] };
+          const child: Node = { ...node, ninja: cloneNinja(node.ninja), runner: node.runner.clone(), plan: [...node.plan, [gap, hold]] };
           loadState(child);
           const target = () => targetOf(child);
-          const runner = new AutoRunner(child.ninja, child.dir);
-          if (!advance(child, gap, false, false, sim, runner, target)) continue;
-          if (child.ninja.state !== NinjaState.Celebrating && !advance(child, hold, true, true, sim, runner, target)) continue;
-          child.dir = runner.dir;
+          if (!advance(child, gap, false, sim, target)) continue;
+          if (child.ninja.state !== NinjaState.Celebrating && !advance(child, hold, true, sim, target)) continue;
           child.mines = saveMines();
           bestY = Math.min(bestY, child.bestY);
           if (goalReached(child)) {
             if (goalY === undefined) return { plan: child.plan, bestY };
             // Make sure the ninja survives the landing.
-            const check = { ...child, ninja: cloneNinja(child.ninja), mines: [...child.mines] };
+            const check = { ...child, ninja: cloneNinja(child.ninja), runner: child.runner.clone(), mines: [...child.mines] };
             sim.ninja = check.ninja;
-            if (advance(check, 150, false, false, sim, runner, () => null)) return { plan: child.plan, bestY };
+            if (advance(check, 150, false, sim, () => null)) return { plan: child.plan, bestY };
             continue;
           }
           const n = child.ninja;
-          const k = `${Math.round(n.xpos / 8)},${Math.round(n.ypos / 8)},${child.dir},${n.airborn ? 1 : 0},${Math.round(n.yspeed)},${child.hasKey ? 1 : 0},${child.mines.join('')}`;
+          const k = `${Math.round(n.xpos / 8)},${Math.round(n.ypos / 8)},${child.runner.dir},${child.runner.pending},${n.airborn ? 1 : 0},${Math.round(n.yspeed)},${child.hasKey ? 1 : 0},${child.mines.join('')}`;
           const prev = next.get(k);
           if (!prev || score(child, targetOf(child)) < score(prev, targetOf(prev))) next.set(k, child);
         }
@@ -187,16 +186,16 @@ export function replay(level: Level, plan: Plan, onFrame?: (sim: Simulator) => v
   for (let i = 0; i < SETTLE_FRAMES; i++) sim.tick(0, false);
   if (clock !== undefined) sim.timeLeft = clock;
   else if (level.time !== undefined) sim.timeLeft = level.time * TICK_RATE;
-  const runner = new AutoRunner(sim.ninja);
-  const step = (held: boolean, pressed: boolean) => {
-    sim.tick(runner.input(sim.ninja, pressed), held);
+  const runner = new AutoRunner(sim.ninja, level.facing);
+  const step = (held: boolean) => {
+    sim.tick(...runner.control(sim.ninja, held));
     runner.update(sim.ninja);
     onFrame?.(sim);
   };
   for (const [gap, hold] of plan) {
-    for (let i = 0; i < gap; i++) step(false, false);
-    for (let i = 0; i < hold; i++) step(true, i === 0);
+    for (let i = 0; i < gap; i++) step(false);
+    for (let i = 0; i < hold; i++) step(true);
   }
-  for (let i = 0; i < 150; i++) step(false, false);
+  for (let i = 0; i < 150; i++) step(false);
   return sim;
 }

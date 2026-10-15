@@ -110,17 +110,17 @@ export class Game {
 
   private respawnAt(x: number, y: number): void {
     this.sim = new Simulator(this.level.map, x, y, this.level);
-    this.runner = new AutoRunner(this.sim.ninja);
+    this.runner = new AutoRunner(this.sim.ninja, this.level.facing);
     this.phase = Phase.Ready;
     this.sparkles = [];
-    this.animator.reset();
+    this.animator.reset(this.level.facing);
     this.debris = null;
     this.endFrames = 0;
     this.prevX = x;
     this.prevY = y;
     this.snapCamera();
     const knot = this.scarfAnchor();
-    this.scarf = Array.from({ length: SCARF_LINKS }, (_, i): P => [knot[0] - i * SCARF_LINK_LEN, knot[1]]);
+    this.scarf = Array.from({ length: SCARF_LINKS }, (_, i): P => [knot[0] - i * SCARF_LINK_LEN * this.level.facing, knot[1]]);
     this.scarfOld = this.scarf.map((p): P => [p[0], p[1]]);
   }
 
@@ -184,7 +184,7 @@ export class Game {
     const key = this.sim.key;
     const keyWasThere = key?.active;
     if (this.phase === Phase.Playing) {
-      this.sim.tick(this.runner.input(ninja, jump && !ninja.jumpInputOld), jump);
+      this.sim.tick(...this.runner.control(ninja, jump));
       this.runner.update(ninja);
     } else {
       // Waiting for the first tap (let the ninja settle at the spawn point), or celebrating.

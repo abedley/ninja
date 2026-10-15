@@ -5,8 +5,11 @@ Metanet Software's *N: The Way of the Ninja*.
 
 The ninja runs by itself; you only jump. It keeps running the way it's going
 until it hits a wall: on the ground, a wall turns it around; in the air, it
-clings to the wall it hit and slides down until you tap, which kicks it off
-the wall and sends it running the other way. In each level, pick up the key to
+clings to the wall it hit and slides down until you jump, which kicks it off
+the wall and sends it running the other way. On a wall, a quick tap (under
+0.13 s) is a short hop off it, and a longer press a full wall jump, made once
+the press has lasted 0.13 s: N has both jumps, and the one-button controls
+can't tell which you want until then. In each level, pick up the key to
 open the exit door, avoiding the mines, and get there before the clock runs
 out. Fall too far and you die.
 
@@ -59,7 +62,7 @@ Hold the phone upright.
 
 | | Touch | Keyboard / mouse |
 |---|---|---|
-| Start, jump | Tap anywhere; hold for a higher jump | Space, ↑, W, Z, X, Enter or Shift; or click |
+| Start, jump | Tap anywhere; hold for a higher jump (on a wall, tap for a short hop) | Space, ↑, W, Z, X, Enter or Shift; or click |
 | Restart the level | ↺ button | R |
 | Pause, main menu | ⌂ button | Esc |
 | Physics overlay | ⓘ button | `` ` `` (backtick) |
@@ -125,7 +128,8 @@ it's played on its own, with `?level=<name>` (for example `?level=minefield`). F
 death) starts a new run, in case the clock has got too low to finish.
 
 Levels are ASCII grids; the tile legend is in
-`src/level/level.ts`. `N` is the spawn; `$`, `*` and `%` put a piece of gold,
+`src/level/level.ts`. `N` is the spawn, with the ninja facing (and setting
+off) right; `<` is a spawn facing left. `$`, `*` and `%` put a piece of gold,
 a mine or a toggle mine in the middle of a tile, and `D` and `K` the exit door
 and its key. For finer placement, a level can also list `"gold"`, `"mines"`
 and `"toggleMines"` as `[[x, y], ...]`, and `"exit"` as
@@ -155,7 +159,8 @@ ninja when it reaches zero.
 
 The game's site has a level editor at `/editor/` (for example
 `https://<user>.github.io/<repo>/editor/`, or `http://localhost:5173/editor/`
-with `npm run dev`). Paint tiles and objects on the grid: drag to paint,
+with `npm run dev`). Paint tiles and objects on the grid (there's a ninja
+start facing each way): drag to paint,
 right-click to erase, and Shift-drag to fill a rectangle. Ctrl+Z undoes. You
 can resize the level at any edge, set a time limit, and load any level in the
 game to start from. **Playtest** opens the level in the game, with a pencil

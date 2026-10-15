@@ -7,13 +7,13 @@ import { parseLevel, TILE_LEGEND, type LevelDef } from '../level/level';
  * keeps undo simple.
  */
 
-/** Characters that may appear at most once in a level. */
-const UNIQUE = ['N', 'D', 'K'];
+/** Characters that may appear at most once in a level; each group's members exclude each other (one spawn, facing either way). */
+const UNIQUE = [['N', '<'], ['D'], ['K']];
 const EMPTY = '.';
 /** N++'s 6 px entity units per tile. */
 const UNITS_PER_TILE = 4;
 
-export const ENTITY_CHARS = ['N', '$', '*', '%', 'D', 'K'];
+export const ENTITY_CHARS = ['N', '<', '$', '*', '%', 'D', 'K'];
 export const TILE_CHARS = TILE_LEGEND.split('');
 
 export function blankLevel(width = 12, height = 30): LevelDef {
@@ -26,7 +26,7 @@ export function size(def: LevelDef): { width: number; height: number } {
   return { width: def.rows[0]?.length ?? 0, height: def.rows.length };
 }
 
-/** Set one cell. A spawn, door or key placed here is removed from wherever else it was. */
+/** Set one cell. A spawn (facing either way), door or key placed here is removed from wherever else it was. */
 export function setCell(def: LevelDef, x: number, y: number, ch: string): LevelDef {
   return setCells(def, [[x, y]], ch);
 }
@@ -37,8 +37,9 @@ export function setCells(def: LevelDef, cells: readonly [number, number][], ch: 
   const inside = cells.filter(([x, y]) => x >= 0 && y >= 0 && x < width && y < height);
   if (!inside.length) return def;
   const grid = def.rows.map((r) => r.split(''));
-  if (UNIQUE.includes(ch)) {
-    for (const row of grid) for (let i = 0; i < row.length; i++) if (row[i] === ch) row[i] = EMPTY;
+  const unique = UNIQUE.find((group) => group.includes(ch));
+  if (unique) {
+    for (const row of grid) for (let i = 0; i < row.length; i++) if (unique.includes(row[i])) row[i] = EMPTY;
     const [x, y] = inside[inside.length - 1];
     grid[y][x] = ch;
   } else {

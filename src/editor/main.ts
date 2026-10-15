@@ -38,7 +38,8 @@ const TOOL_GROUPS: { title: string; tools: Tool[] }[] = [
   {
     title: 'Objects',
     tools: [
-      { ch: 'N', label: 'Ninja start' },
+      { ch: 'N', label: 'Ninja start, facing right' },
+      { ch: '<', label: 'Ninja start, facing left' },
       { ch: '$', label: 'Gold (+2 s)' },
       { ch: '*', label: 'Mine' },
       { ch: '%', label: 'Toggle mine (safe until touched)' },
@@ -377,8 +378,14 @@ function drawCell(g: CanvasRenderingContext2D, ch: string, x: number, y: number,
         g.stroke();
       }
       return;
-    case 'N': {
-      // A little ninja: head, body and headband.
+    case 'N':
+    case '<': {
+      // A little ninja: head, body and headband (trailing behind), mirrored to face left.
+      g.save();
+      if (ch === '<') {
+        g.translate(2 * cx, 0);
+        g.scale(-1, 1);
+      }
       g.strokeStyle = '#e6f6ff';
       g.fillStyle = '#e6f6ff';
       g.lineCap = 'round';
@@ -400,6 +407,15 @@ function drawCell(g: CanvasRenderingContext2D, ch: string, x: number, y: number,
       g.moveTo(cx - s * 0.14, y + s * 0.22);
       g.lineTo(cx - s * 0.38, y + s * 0.18);
       g.stroke();
+      // An arrow at the feet: the way it starts running.
+      g.fillStyle = COLORS.ninja;
+      g.beginPath();
+      g.moveTo(cx + s * 0.44, y + s * 0.84);
+      g.lineTo(cx + s * 0.3, y + s * 0.76);
+      g.lineTo(cx + s * 0.3, y + s * 0.92);
+      g.closePath();
+      g.fill();
+      g.restore();
       return;
     }
     case '$':

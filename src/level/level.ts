@@ -8,7 +8,8 @@ import { TileMap } from '../physics/tileMap';
  * where levels are 42x23 tiles inside a frame).
  *
  * Legend (tile id in brackets):
- *   .  empty [0]                 #  full [1]                N  ninja spawn (empty tile)
+ *   .  empty [0]                 #  full [1]
+ *   N  ninja spawn, facing right (empty tile);  <  ninja spawn, facing left
  *   $  gold, centred in an empty tile
  *   *  mine, centred in an empty tile
  *   %  toggle mine (safe until touched, armed once the ninja moves off it), centred in an empty tile
@@ -28,6 +29,7 @@ import { TileMap } from '../physics/tileMap';
  */
 export const TILE_LEGEND = '.#TRBLyz/\\uvwxUVWXabcdefghijklmnop';
 const SPAWN_CHAR = 'N';
+const SPAWN_LEFT_CHAR = '<';
 const GOLD_CHAR = '$';
 const MINE_CHAR = '*';
 const TOGGLE_MINE_CHAR = '%';
@@ -60,6 +62,8 @@ export interface Level {
   map: TileMap;
   spawnX: number;
   spawnY: number;
+  /** The way the ninja faces, and starts running, at the spawn: 1 right, -1 left. */
+  facing: 1 | -1;
   /** Entity positions in world px. */
   gold: Point[];
   mines: Point[];
@@ -77,6 +81,7 @@ export function parseLevel(def: LevelDef): Level {
   const height = innerH + 2;
   const tiles = new Uint8Array(width * height).fill(1);
   let spawn: [number, number] | null = null;
+  let facing: 1 | -1 = 1;
   const gold: Point[] = [];
   const mines: Point[] = [];
   const toggleMines: Point[] = [];
@@ -98,9 +103,10 @@ export function parseLevel(def: LevelDef): Level {
     for (let x = 0; x < innerW; x++) {
       const ch = row[x];
       let id: number;
-      if (ch === SPAWN_CHAR) {
+      if (ch === SPAWN_CHAR || ch === SPAWN_LEFT_CHAR) {
         if (spawn) throw new Error(`Level "${def.name}" has more than one spawn`);
         spawn = [x + 1, y + 1];
+        facing = ch === SPAWN_LEFT_CHAR ? -1 : 1;
         id = 0;
       } else if (ch in entityLists) {
         entityLists[ch].push({ x: (x + 1) * TILE_SIZE + TILE_SIZE / 2, y: (y + 1) * TILE_SIZE + TILE_SIZE / 2 });
@@ -112,7 +118,7 @@ export function parseLevel(def: LevelDef): Level {
       tiles[(y + 1) * width + (x + 1)] = id;
     }
   }
-  if (!spawn) throw new Error(`Level "${def.name}" has no spawn ("${SPAWN_CHAR}")`);
+  if (!spawn) throw new Error(`Level "${def.name}" has no spawn ("${SPAWN_CHAR}", or "${SPAWN_LEFT_CHAR}" to face left)`);
   const [sx, sy] = spawn;
   const extra = (list: Point[], coords: [number, number][] = []) => {
     for (const [ex, ey] of coords) list.push({ x: ex * ENTITY_GRID, y: ey * ENTITY_GRID });
@@ -133,6 +139,7 @@ export function parseLevel(def: LevelDef): Level {
     // Spawn in the centre of the marked tile; the ninja then settles onto the floor.
     spawnX: sx * TILE_SIZE + TILE_SIZE / 2,
     spawnY: sy * TILE_SIZE + TILE_SIZE / 2,
+    facing,
     gold,
     mines,
     toggleMines,

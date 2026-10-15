@@ -33,6 +33,10 @@ describe('level editor operations', () => {
     expect(def.rows).toEqual(['.D..', '..KN']);
     // A rectangle of doors is one door, at the last cell.
     expect(setCells(def, rectCells(0, 0, 1, 1), 'D').rows).toEqual(['....', '.DKN']);
+    // A spawn facing left replaces the one facing right, and back.
+    def = setCell(def, 0, 0, '<');
+    expect(def.rows).toEqual(['<D..', '..K.']);
+    expect(setCell(def, 1, 1, 'N').rows).toEqual(['.D..', '.NK.']);
   });
 
   it('fills rectangles', () => {
