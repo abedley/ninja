@@ -149,7 +149,7 @@ export function solve(level: Level, opts: { goalY?: number; beam?: number; maxPr
             continue;
           }
           const n = child.ninja;
-          const k = `${Math.round(n.xpos / 8)},${Math.round(n.ypos / 8)},${child.runner.dir},${child.runner.pending},${n.airborn ? 1 : 0},${Math.round(n.yspeed)},${child.hasKey ? 1 : 0},${child.mines.join('')}`;
+          const k = `${Math.round(n.xpos / 8)},${Math.round(n.ypos / 8)},${child.runner.dir},${n.airborn ? 1 : 0},${Math.round(n.yspeed)},${child.hasKey ? 1 : 0},${child.mines.join('')}`;
           const prev = next.get(k);
           if (!prev || score(child, targetOf(child)) < score(prev, targetOf(prev))) next.set(k, child);
         }

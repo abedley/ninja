@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AutoRunner, WALL_TAP_FRAMES } from '../src/game/autoRunner';
+import { AutoRunner } from '../src/game/autoRunner';
 import { parseLevel } from '../src/level/level';
 import { MineState } from '../src/physics/mine';
 import { NinjaState } from '../src/physics/ninja';
@@ -74,57 +74,5 @@ describe('auto-runner', () => {
     const { log } = run(['.......<'], 30);
     expect(log[0].dir).toBe(-1);
     expect(log[29].x).toBeLessThan(log[0].x);
-  });
-
-  describe('on a wall', () => {
-    const shaft = ['#.....', '#.....', '#.....', '#.....', '#.....', '#.....', '#.....', '#.....', '#.....', '#.....', '#....N'];
-    /** Drop the ninja onto the right wall, high up, and let it slide; pressing on the given frames. */
-    function slide(presses: [frame: number, hold: number][], frames: number) {
-      const level = parseLevel({ name: 'test', rows: shaft });
-      const sim = new Simulator(level.map, level.spawnX, level.spawnY - 8 * 24);
-      const runner = new AutoRunner(sim.ninja);
-      const log: { jump: boolean; state: NinjaState; y: number }[] = [];
-      for (let f = 0; f < frames; f++) {
-        const held = presses.some(([p, h]) => f >= p && f < p + h);
-        const [hor, jump] = runner.control(sim.ninja, held);
-        sim.tick(hor, jump);
-        runner.update(sim.ninja);
-        log.push({ jump, state: sim.ninja.state, y: sim.ninja.ypos });
-      }
-      return { sim, runner, log };
-    }
-    const PRESS = 40;
-    const rise = (log: { y: number }[]) => log[PRESS].y - Math.min(...log.slice(PRESS).map((e) => e.y));
-
-    it('a tap is a short hop, on release', () => {
-      const { sim, runner, log } = slide([[PRESS, 4]], PRESS + 30);
-      expect(log[PRESS - 1].state).toBe(NinjaState.WallSliding);
-      // The press waits while held, and the hop comes when it's let go.
-      expect(log.slice(PRESS, PRESS + 4).every((e) => !e.jump && e.state === NinjaState.WallSliding)).toBe(true);
-      expect(log[PRESS + 4].jump).toBe(true);
-      expect(log[PRESS + 5].jump).toBe(false);
-      expect(sim.ninja.wallJumps).toBe(1);
-      expect(runner.dir).toBe(-1);
-      expect(rise(log)).toBeLessThan(8);
-    });
-
-    it(`a press held for ${WALL_TAP_FRAMES} frames is a full jump, held for the rest of the press`, () => {
-      const short = slide([[PRESS, WALL_TAP_FRAMES + 1]], PRESS + 60);
-      expect(short.log.findIndex((e) => e.jump)).toBe(PRESS + WALL_TAP_FRAMES - 1);
-      expect(short.log.filter((e) => e.jump)).toHaveLength(2);
-      expect(rise(short.log)).toBeGreaterThan(8);
-      const long = slide([[PRESS, 50]], PRESS + 90);
-      expect(rise(long.log)).toBeGreaterThan(rise(short.log) + 20);
-      expect(long.runner.dir).toBe(-1);
-      expect(long.sim.ninja.wallJumps).toBe(1);
-    });
-
-    it('jumps straight away if the ninja reaches the floor while the press waits', () => {
-      const landed = slide([], 400).log.findIndex((e) => e.state < NinjaState.Jumping);
-      expect(landed).toBeGreaterThan(PRESS);
-      const { log } = slide([[landed - 3, 30]], landed + 10);
-      expect(log.findIndex((e) => e.jump)).toBe(landed + 1);
-      expect(log[landed + 1].state).toBe(NinjaState.Jumping);
-    });
   });
 });
