@@ -119,7 +119,16 @@ describe('campaigns.json', () => {
 
 function memoryStore(): RecordStore & { data: Map<string, string> } {
   const data = new Map<string, string>();
-  return { data, getItem: (k) => data.get(k) ?? null, setItem: (k, v) => void data.set(k, v) };
+  return {
+    data,
+    getItem: (k) => data.get(k) ?? null,
+    setItem: (k, v) => void data.set(k, v),
+    removeItem: (k) => void data.delete(k),
+    get length() {
+      return data.size;
+    },
+    key: (i) => [...data.keys()][i] ?? null,
+  };
 }
 
 describe('records', () => {
@@ -181,6 +190,20 @@ describe('records', () => {
     records.submitRun('c', { timeLeft: 1000, totalFrames: 6000, date: 2 });
     records.adoptOldRuns('c');
     expect(records.runs('c')).toHaveLength(2);
+  });
+
+  it('can all be reset, leaving anything else in storage alone', () => {
+    const store = memoryStore();
+    store.data.set('ninja.campaign-runs', '[]');
+    store.data.set('ninja.editor.draft', '{}');
+    const records = new Records(store);
+    records.submitLevel('a', { frames: 900, gold: 1 });
+    records.submitRun('c', { timeLeft: 1000, totalFrames: 6000, date: 1 });
+    records.clear();
+    expect(records.levelBest('a')).toBeNull();
+    expect(records.runs('c')).toEqual([]);
+    expect([...store.data.keys()]).toEqual(['ninja.editor.draft']);
+    new Records(null).clear();
   });
 
   it('work without storage, and survive broken data', () => {

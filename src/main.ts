@@ -311,7 +311,6 @@ function showMessage(): void {
     case Phase.Dead: {
       const text = game.timedOut ? 'Out of time!\nTap to try again' : 'Tap to try again';
       message.replaceChildren(text);
-      if (run && run.index > 0) message.append(startOverButton());
       break;
     }
     case Phase.Won:

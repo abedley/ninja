@@ -10,6 +10,8 @@ type Screen = 'main' | 'play' | 'scores';
  */
 export class Menu {
   private screen: Screen = 'main';
+  /** On the high scores screen: asking whether to really reset them. */
+  private confirmingReset = false;
   /** Whether there's a game to go back to (shows "Resume"). */
   canResume = false;
   onPlay: (campaign: Campaign) => void = () => {};
@@ -27,6 +29,7 @@ export class Menu {
 
   open(screen: Screen = 'main'): void {
     this.screen = screen;
+    this.confirmingReset = false;
     this.root.hidden = false;
     this.render();
   }
@@ -125,7 +128,35 @@ export class Menu {
       card.append(table, el('p', 'A level’s score is 30 s less the time taken, plus 2 s for each piece of gold.', 'menu-dim'));
       list.append(card);
     }
-    return [this.header('High scores'), list];
+    return [this.header('High scores'), list, this.resetBox()];
+  }
+
+  /** A button to reset the high scores, which asks first. */
+  private resetBox(): HTMLElement {
+    const box = el('div', '', 'menu-reset');
+    if (!this.confirmingReset) {
+      box.append(this.button('Reset high scores', () => this.askReset(true), 'menu-danger'));
+      return box;
+    }
+    box.classList.add('confirming');
+    const buttons = el('div', '', 'menu-row');
+    buttons.append(
+      this.button('Cancel', () => this.askReset(false)),
+      this.button('Reset', () => {
+        this.records.clear();
+        this.open('scores');
+      }, 'menu-danger'),
+    );
+    box.append(el('p', 'Delete all your high scores? This can’t be undone.'), buttons);
+    return box;
+  }
+
+  private askReset(asking: boolean): void {
+    this.confirmingReset = asking;
+    this.render();
+    // Keep the reset controls in view (render scrolls back to the top).
+    this.root.querySelector('.menu-reset')?.scrollIntoView({ block: 'nearest' });
+    this.root.querySelector<HTMLElement>('.menu-reset .menu-item')?.focus({ preventScroll: true });
   }
 
   private header(title: string): HTMLElement {

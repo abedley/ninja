@@ -27,7 +27,8 @@ The game keeps your best score for each level and your five best runs, ranked
 by the time left at the end, in the browser. A level's score is 30 seconds less
 the time taken (from the first tap to the door), plus two seconds for each piece
 of gold: the time you'd have left on a 30 second clock. Higher is better, and it
-can go below zero.
+can go below zero. **Reset high scores**, at the bottom of the High scores
+screen, deletes them all after asking to make sure.
 
 It's set at midnight in a neon city. The platforms are dark blocks edged with
 neon light, the ninja's headband glows hot pink, and gold, mines, the key and
@@ -117,8 +118,8 @@ Every level is in `src/level/levels.json`. The campaigns on the menu are in
 clock starts with, and its levels by name, in order. Add a campaign there and
 it appears under Play and High scores. A level's own `"time"` is used when
 it's played on its own, with `?level=<name>` (for example `?level=minefield`). From the second level on, a
-**Start over from level 1** button on the level's title card (and after a
-death) starts a new run, in case the clock has got too low to finish.
+**Start over from level 1** button on the level's title card starts a new run,
+in case the clock has got too low to finish.
 
 Levels are ASCII grids; the tile legend is in
 `src/level/level.ts`. `N` is the spawn, with the ninja facing (and setting

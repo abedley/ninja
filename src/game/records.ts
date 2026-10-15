@@ -14,6 +14,9 @@ import { GOLD_TIME_BONUS, TICK_RATE } from '../physics/simulator';
 export interface RecordStore {
   getItem(key: string): string | null;
   setItem(key: string, value: string): void;
+  removeItem(key: string): void;
+  readonly length: number;
+  key(index: number): string | null;
 }
 
 export interface RunRecord {
@@ -44,6 +47,8 @@ export const levelScore = (r: LevelRecord): number => DEFAULT_LEVEL_TIME * TICK_
 export const RUNS_KEPT = 5;
 const LEVEL_PREFIX = 'ninja.level-best.';
 const RUNS_PREFIX = 'ninja.campaign-runs.';
+/** What every high score's key starts with (including the runs saved before campaigns had names). */
+const RECORD_PREFIXES = [LEVEL_PREFIX, 'ninja.campaign-runs'];
 
 export class Records {
   constructor(private readonly store: RecordStore | null) {}
@@ -91,6 +96,22 @@ export class Records {
   adoptOldRuns(campaign: string): void {
     const old = this.read('ninja.campaign-runs');
     if (old !== null && this.read(RUNS_PREFIX + campaign) === null) this.write(RUNS_PREFIX + campaign, old);
+  }
+
+  /** Forget every high score: each level's best and each campaign's runs. */
+  clear(): void {
+    try {
+      const store = this.store;
+      if (!store) return;
+      const keys: string[] = [];
+      for (let i = 0; i < store.length; i++) {
+        const key = store.key(i);
+        if (key !== null && RECORD_PREFIXES.some((p) => key.startsWith(p))) keys.push(key);
+      }
+      for (const key of keys) store.removeItem(key);
+    } catch {
+      /* storage unavailable: nothing to clear */
+    }
   }
 
   private read(key: string): string | null {

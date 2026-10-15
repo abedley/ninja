@@ -630,6 +630,44 @@ body {
   margin-top: 12px;
 }
 
+.menu-reset {
+  margin-top: 24px;
+}
+
+.menu-reset.confirming {
+  padding: 14px 16px 16px;
+  border: 1px solid rgba(255, 77, 109, 0.5);
+  border-radius: 14px;
+  background: rgba(255, 77, 109, 0.08);
+}
+
+.menu-reset p {
+  margin: 0 0 12px;
+  color: #ffd6de;
+}
+
+.menu-row {
+  display: flex;
+  gap: 12px;
+}
+
+.menu-item.menu-danger {
+  border-color: rgba(255, 77, 109, 0.6);
+  color: #ffb3c1;
+  box-shadow: 0 0 12px rgba(255, 77, 109, 0.2);
+}
+
+.menu-item.menu-danger:hover,
+.menu-item.menu-danger:focus-visible {
+  border-color: #ff4d6d;
+  box-shadow: 0 0 16px rgba(255, 77, 109, 0.45);
+}
+
+.menu-reset.confirming .menu-item.menu-danger {
+  background: rgba(255, 77, 109, 0.2);
+  color: #ffe1e7;
+}
+
 .menu-table {
   width: 100%;
   border-collapse: collapse;
