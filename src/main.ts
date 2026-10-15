@@ -36,9 +36,10 @@ const single = playtest ?? LEVELS.find((l) => l.name.toLowerCase() === wanted) ?
 let run: CampaignRun | null = null;
 /** Which levels of this run set a new best time. */
 let newBests: boolean[] = [];
-// Best times aren't kept for levels being playtested from the editor.
-const records = new Records(playtest ? null : browserStore());
+const records = new Records(browserStore());
 records.adoptOldRuns(CAMPAIGNS[0].name);
+// Ask the browser not to clear the records to free up space (a home-screen app on iOS may otherwise lose them).
+void navigator.storage?.persist?.().catch(() => {});
 
 function validLevel(def: LevelDef | null): LevelDef | null {
   try {
@@ -202,11 +203,13 @@ let result: HTMLElement[] = [];
 function onWon(): void {
   const name = game.levelDef.name;
   const frames = game.clearFrames;
-  const best = playtest ? null : records.submitLevel(name, frames);
+  // Best times aren't kept for the level being playtested from the editor (but are for a campaign started from its menu).
+  const testing = playtest !== null && !run;
+  const best = testing ? null : records.submitLevel(name, frames);
   const isNewBest = best === null || frames < best;
   if (run) newBests[run.index] = isNewBest;
   const time = el('p', `Time ${secs(frames)} s`);
-  if (!playtest) time.append(isNewBest ? el('span', 'New best!', 'new-best') : el('span', `Best ${secs(best!)} s`, 'best'));
+  if (!testing) time.append(isNewBest ? el('span', 'New best!', 'new-best') : el('span', `Best ${secs(best!)} s`, 'best'));
   const lines: HTMLElement[] = [time, el('p', `Gold ${game.goldCollected}/${game.goldTotal}`)];
 
   if (!run) {
