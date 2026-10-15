@@ -1,9 +1,11 @@
-import { GOLD_TIME_BONUS } from '../physics/simulator';
+import { DEFAULT_LEVEL_TIME } from '../level/level';
+import { GOLD_TIME_BONUS, TICK_RATE } from '../physics/simulator';
 
 /**
- * Best times, kept in the browser's storage:
- *  - for each level, the best clear, scored by the time taken (frames from the
- *    first tap to the door) less two seconds for each piece of gold;
+ * High scores, kept in the browser's storage:
+ *  - for each level, the best clear, scored by 30 s less the time taken
+ *    (frames from the first tap to the door) plus two seconds for each piece
+ *    of gold;
  *  - for each campaign, the best runs, ranked by the time left on the clock
  *    at the end (the run's score: gold adds to it), with each run's total time.
  */
@@ -31,8 +33,12 @@ export interface LevelRecord {
   gold: number;
 }
 
-/** A clear's score, in frames: the time taken less GOLD_TIME_BONUS per gold (lower is better; can be negative). */
-export const levelScore = (r: LevelRecord): number => r.frames - r.gold * GOLD_TIME_BONUS;
+/**
+ * A clear's score, in frames: DEFAULT_LEVEL_TIME less the time taken, plus
+ * GOLD_TIME_BONUS per gold (higher is better; it can be negative). It's the
+ * time that would be left on a 30 s clock, whatever the level's own clock.
+ */
+export const levelScore = (r: LevelRecord): number => DEFAULT_LEVEL_TIME * TICK_RATE - r.frames + r.gold * GOLD_TIME_BONUS;
 
 /** How many runs the campaign table keeps. */
 export const RUNS_KEPT = 5;
@@ -59,7 +65,7 @@ export class Records {
   /** Record a clear of a level; returns the previous best (null if none). */
   submitLevel(name: string, clear: LevelRecord): LevelRecord | null {
     const best = this.levelBest(name);
-    if (best === null || levelScore(clear) < levelScore(best)) this.write(LEVEL_PREFIX + name, JSON.stringify(clear));
+    if (best === null || levelScore(clear) > levelScore(best)) this.write(LEVEL_PREFIX + name, JSON.stringify(clear));
     return best;
   }
 

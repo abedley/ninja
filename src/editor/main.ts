@@ -1,5 +1,5 @@
 import { TILE_POLYS } from '../game/tileShapes';
-import { TILE_LEGEND, type LevelDef } from '../level/level';
+import { DEFAULT_LEVEL_TIME, TILE_LEGEND, type LevelDef } from '../level/level';
 import { LEVELS } from '../level/levels';
 import { PLAYTEST_PARAM, savePlaytest } from '../level/playtest';
 import { CircularSegment, LinearSegment } from '../physics/geometry';
@@ -206,7 +206,7 @@ function syncFields(): void {
   fDescription.value = def.description ?? '';
   fTimed.checked = def.time !== undefined;
   fTime.disabled = def.time === undefined;
-  fTime.value = String(def.time ?? 60);
+  fTime.value = String(def.time ?? DEFAULT_LEVEL_TIME);
 }
 
 function syncPanel(): void {
@@ -242,7 +242,7 @@ let fieldBefore: LevelDef | null = null;
 for (const el of [fName, fDescription, fTime]) {
   el.addEventListener('focus', () => (fieldBefore = def));
   el.addEventListener('input', () => {
-    def = { ...def, name: fName.value, description: fDescription.value, ...(fTimed.checked ? { time: Math.max(1, Number(fTime.value) || 60) } : {}) };
+    def = { ...def, name: fName.value, description: fDescription.value, ...(fTimed.checked ? { time: Math.max(1, Number(fTime.value) || DEFAULT_LEVEL_TIME) } : {}) };
     if (!fTimed.checked) delete def.time;
     changed(false);
   });
@@ -253,7 +253,7 @@ for (const el of [fName, fDescription, fTime]) {
 }
 fTimed.addEventListener('change', () => {
   const next: LevelDef = { ...def };
-  if (fTimed.checked) next.time = Math.max(1, Number(fTime.value) || 60);
+  if (fTimed.checked) next.time = Math.max(1, Number(fTime.value) || DEFAULT_LEVEL_TIME);
   else delete next.time;
   commit(next);
 });

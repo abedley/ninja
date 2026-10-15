@@ -17,16 +17,17 @@ level times, and **Level editor** opens the editor. The ⌂ button (or Esc)
 during play pauses and brings the menu back, with **Resume** at the top.
 
 A campaign is five levels on one clock, like an N++ episode: you
-start with 120 seconds, each level starts with the time left at the end of the
+start with 30 seconds, each level starts with the time left at the end of the
 one before, and each piece of gold adds two seconds. Dying (or running out of
 time) sends you back to the start of the level you're on, with the clock back
 where it was when you started it. Midnight City's levels are First Steps,
 Wall Jumping, Hop, Skip, Jump!, Risk Reward Room and Fireman.
 
 The game keeps your best score for each level and your five best runs, ranked
-by the time left at the end, in the browser. A level's score is the time taken
-(from the first tap to the door) less two seconds for each piece of gold, so
-lower is better, and it can go below zero.
+by the time left at the end, in the browser. A level's score is 30 seconds less
+the time taken (from the first tap to the door), plus two seconds for each piece
+of gold: the time you'd have left on a 30 second clock. Higher is better, and it
+can go below zero.
 
 It's set at midnight in a neon city. The platforms are dark blocks edged with
 neon light, the ninja's headband glows hot pink, and gold, mines, the key and

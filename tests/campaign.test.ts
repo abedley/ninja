@@ -123,7 +123,7 @@ function memoryStore(): RecordStore & { data: Map<string, string> } {
 }
 
 describe('records', () => {
-  it('keep the best score for each level: the time less 2 s per gold', () => {
+  it('keep the best score for each level: 30 s less the time, plus 2 s per gold', () => {
     const records = new Records(memoryStore());
     const clear = (frames: number, gold = 0) => ({ frames, gold });
     expect(records.levelBest('a')).toBeNull();
@@ -133,13 +133,16 @@ describe('records', () => {
     expect(records.submitLevel('a', clear(800))).toEqual(clear(900));
     expect(records.levelBest('a')).toEqual(clear(800));
     expect(records.levelBest('b')).toBeNull();
-    // Slower, but with two gold: 1000 - 2 * 120 = 760 beats 800.
-    expect(levelScore(clear(1000, 2))).toBe(760);
+    // 30 s is 1800 frames; 800 frames scores 1000.
+    expect(levelScore(clear(800))).toBe(1000);
+    // Slower, but with two gold: 1800 - 1000 + 2 * 120 = 1040 beats 1000.
+    expect(levelScore(clear(1000, 2))).toBe(1040);
     records.submitLevel('a', clear(1000, 2));
     expect(records.levelBest('a')).toEqual(clear(1000, 2));
-    // A score can go below zero.
-    records.submitLevel('a', clear(300, 5));
-    expect(levelScore(records.levelBest('a')!)).toBe(-300);
+    // Taking over 30 s scores below zero.
+    expect(levelScore(clear(2400, 1))).toBe(-480);
+    expect(records.submitLevel('a', clear(2400, 1))).toEqual(clear(1000, 2));
+    expect(records.levelBest('a')).toEqual(clear(1000, 2));
   });
 
   it('read best times saved before gold counted as clears with no gold', () => {

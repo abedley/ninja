@@ -1,4 +1,4 @@
-import { parseLevel, TILE_LEGEND, type LevelDef } from '../level/level';
+import { DEFAULT_LEVEL_TIME, parseLevel, TILE_LEGEND, type LevelDef } from '../level/level';
 
 /**
  * Pure editing operations on level definitions (no DOM), used by the level
@@ -19,7 +19,7 @@ export const TILE_CHARS = TILE_LEGEND.split('');
 export function blankLevel(width = 12, height = 30): LevelDef {
   const rows = Array.from({ length: height }, () => EMPTY.repeat(width));
   rows[height - 1] = 'N' + EMPTY.repeat(width - 1);
-  return { name: 'New level', description: '', time: 60, rows };
+  return { name: 'New level', description: '', time: DEFAULT_LEVEL_TIME, rows };
 }
 
 export function size(def: LevelDef): { width: number; height: number } {

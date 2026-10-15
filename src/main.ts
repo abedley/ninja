@@ -210,7 +210,7 @@ function onWon(): void {
   // Best scores aren't kept for the level being playtested from the editor (but are for a campaign started from its menu).
   const testing = playtest !== null && !run;
   const best = testing ? null : records.submitLevel(name, clear);
-  const isNewBest = best === null || levelScore(clear) < levelScore(best);
+  const isNewBest = best === null || levelScore(clear) > levelScore(best);
   if (run) {
     newBests[run.index] = isNewBest;
     clears[run.index] = clear;
@@ -221,7 +221,7 @@ function onWon(): void {
     el('p', `Time ${secs(frames)} s`),
     el('p', `Gold ${game.goldCollected}/${game.goldTotal}`),
     scoreLine,
-    el('p', 'Score: time less 2 s per gold', 'note'),
+    el('p', 'Score: 30 s less your time, plus 2 s per gold', 'note'),
   ];
 
   if (!run) {

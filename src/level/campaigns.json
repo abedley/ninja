@@ -2,7 +2,7 @@
   {
     "name": "Midnight City",
     "description": "Five levels on one clock, from your first jumps to the summit.",
-    "time": 120,
+    "time": 30,
     "levels": ["First Steps", "Wall Jumping", "Hop, Skip, Jump!", "Risk Reward Room", "Fireman"]
   }
 ]

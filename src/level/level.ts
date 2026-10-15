@@ -58,6 +58,9 @@ export interface LevelDef {
   time?: number;
 }
 
+/** Seconds on the clock for a new level, and what a level's score counts down from. */
+export const DEFAULT_LEVEL_TIME = 30;
+
 export interface Level {
   name: string;
   map: TileMap;

@@ -122,7 +122,7 @@ export class Menu {
         row.append(el('td', `${i + 1}`), el('td', l.name), el('td', best === null ? '–' : `${secs(levelScore(best))} s`));
         row.append(el('td', best === null ? '' : `${secs(best.frames)} s · ${best.gold} gold`, 'menu-dim menu-detail'));
       });
-      card.append(table, el('p', 'A level’s score is the time taken less 2 s for each piece of gold.', 'menu-dim'));
+      card.append(table, el('p', 'A level’s score is 30 s less the time taken, plus 2 s for each piece of gold.', 'menu-dim'));
       list.append(card);
     }
     return [this.header('High scores'), list];
