@@ -23,11 +23,12 @@ import { TileMap } from '../physics/tileMap';
  *   e f g h   raised mild slopes [22-25]: e,f ceilings; g floor rising right; h floor falling right
  *   i j k l   short steep slopes [26-29]: i,j ceilings; k floor rising right; l floor falling right
  *   m n o p   raised steep slopes [30-33]: m,n ceilings; o floor rising right; p floor falling right
+ *   G         greased full tile [34]: its walls are slippery (the ninja slides down them, speeding up)
  *
  * A mild ramp rising to the right is "cg" (short then raised); falling, "hd".
  * A steep ramp spans two rows in one column: "k" above "o" rising, "l" above "p" falling.
  */
-export const TILE_LEGEND = '.#TRBLyz/\\uvwxUVWXabcdefghijklmnop';
+export const TILE_LEGEND = '.#TRBLyz/\\uvwxUVWXabcdefghijklmnopG';
 const SPAWN_CHAR = 'N';
 const SPAWN_LEFT_CHAR = '<';
 const GOLD_CHAR = '$';

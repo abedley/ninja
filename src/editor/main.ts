@@ -3,7 +3,7 @@ import { TILE_LEGEND, type LevelDef } from '../level/level';
 import { LEVELS } from '../level/levels';
 import { PLAYTEST_PARAM, savePlaytest } from '../level/playtest';
 import { CircularSegment, LinearSegment } from '../physics/geometry';
-import { TILE_SIZE } from '../physics/tileDefs';
+import { GREASED_TILE, TILE_SIZE } from '../physics/tileDefs';
 import { TileMap } from '../physics/tileMap';
 import { blankLevel, check, exportText, importText, rectCells, resize, setCells, size, type Edge } from './levelEdit';
 
@@ -19,6 +19,8 @@ const COLORS = {
   border: '#1c1840',
   tile: '#2a2563',
   edge: '#25d4ff',
+  grease: '#ff8a2a',
+  greaseFill: '#3a2140',
   grid: 'rgba(255, 255, 255, 0.07)',
   gridMajor: 'rgba(255, 255, 255, 0.14)',
   gold: '#ffd23f',
@@ -52,6 +54,7 @@ const TOOL_GROUPS: { title: string; tools: Tool[] }[] = [
     tools: [
       { ch: '.', label: 'Eraser (empty)' },
       { ch: '#', label: 'Solid block' },
+      { ch: 'G', label: 'Greased block (the ninja slides down its sides, speeding up)' },
       { ch: 'T', label: 'Half block, top' },
       { ch: 'B', label: 'Half block, bottom' },
       { ch: 'L', label: 'Half block, left' },
@@ -356,9 +359,10 @@ function drawCell(g: CanvasRenderingContext2D, ch: string, x: number, y: number,
     g.moveTo(x + poly[0][0] * k, y + poly[0][1] * k);
     for (const [px, py] of poly.slice(1)) g.lineTo(x + px * k, y + py * k);
     g.closePath();
-    g.fillStyle = COLORS.tile;
+    const greased = id === GREASED_TILE;
+    g.fillStyle = greased ? COLORS.greaseFill : COLORS.tile;
     g.fill();
-    g.strokeStyle = COLORS.edge;
+    g.strokeStyle = greased ? COLORS.grease : COLORS.edge;
     g.lineWidth = 1;
     g.stroke();
     return;
@@ -513,11 +517,22 @@ function draw(): void {
   }
   ctx.fillStyle = COLORS.tile;
   ctx.fill(solid);
+  // Greased blocks: tinted, with their slippery walls in orange.
+  const greasedTiles = new Path2D();
+  for (let ty = 0; ty < map.height; ty++) {
+    for (let tx = 0; tx < map.width; tx++) if (map.tileAt(tx, ty) === GREASED_TILE) greasedTiles.rect(tx * TILE_SIZE, ty * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+  }
+  ctx.fillStyle = COLORS.greaseFill;
+  ctx.fill(greasedTiles);
   const outline = new Path2D();
+  const greasedWalls = new Path2D();
   for (const seg of map.allSegments()) {
     if (seg instanceof LinearSegment) {
-      outline.moveTo(seg.x1, seg.y1);
-      outline.lineTo(seg.x2, seg.y2);
+      const midY = (seg.y1 + seg.y2) / 2;
+      const greased = seg.x1 === seg.x2 && (map.isGreasedAt(seg.x1 - 1, midY) || map.isGreasedAt(seg.x1 + 1, midY));
+      const path = greased ? greasedWalls : outline;
+      path.moveTo(seg.x1, seg.y1);
+      path.lineTo(seg.x2, seg.y2);
     } else if (seg instanceof CircularSegment) {
       outline.moveTo(seg.pHorX, seg.pHorY);
       outline.arc(seg.cx, seg.cy, seg.radius, Math.atan2(0, seg.hor), Math.atan2(seg.ver, 0), Math.sign(seg.hor * seg.ver) < 0);
@@ -526,6 +541,9 @@ function draw(): void {
   ctx.strokeStyle = COLORS.edge;
   ctx.lineWidth = 1.2 / k;
   ctx.stroke(outline);
+  ctx.strokeStyle = COLORS.grease;
+  ctx.lineWidth = 2 / k;
+  ctx.stroke(greasedWalls);
   ctx.restore();
 
   // The border isn't editable: shade it.

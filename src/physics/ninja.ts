@@ -71,6 +71,8 @@ export class Ninja {
   airbornOld = false;
   walled = false;
   wallNormal = 0;
+  /** Whether the wall being touched is greased (no friction to slide down it). Not part of N. */
+  wallGreased = false;
   /** Number of wall jumps so far. */
   wallJumps = 0;
 
@@ -177,6 +179,8 @@ export class Ninja {
   /** Determine airborne / walled state, floor and ceiling normals, and impact deaths. */
   postCollision(): void {
     let wallNormal = 0;
+    let wallX = 0;
+    let wallY = 0;
     const rad = NINJA.RADIUS + 0.1;
     const segs = this.map.gatherSegments(this.xpos - rad, this.ypos - rad, this.xpos + rad, this.ypos + rad, this.segBuf);
     const cp = this.cp;
@@ -187,15 +191,20 @@ export class Ninja {
       const dist = Math.sqrt(dx * dx + dy * dy);
       if (Math.abs(dy) < 0.00001 && dist > 0 && dist <= rad && !wallNormal) {
         wallNormal = dx / dist;
+        wallX = cp.x;
+        wallY = cp.y;
       }
     }
 
     this.airbornOld = this.airborn;
     this.airborn = true;
     this.walled = false;
+    this.wallGreased = false;
     if (wallNormal) {
       this.walled = true;
       this.wallNormal = wallNormal;
+      // The wall's tile is just behind the contact point (the wall's normal points away from it).
+      this.wallGreased = this.map.isGreasedAt(wallX - 0.5 * wallNormal, wallY);
     }
 
     if (this.floorCount > 0) {
@@ -444,8 +453,9 @@ export class Ninja {
     if (!this.walled) {
       if (this.state === NinjaState.WallSliding) this.state = NinjaState.Falling;
     } else if (this.state === NinjaState.WallSliding) {
-      if (this.horInput * this.wallNormal <= 0) this.yspeed *= NINJA.FRICTION_WALL;
-      else this.state = NinjaState.Falling;
+      if (this.horInput * this.wallNormal > 0) this.state = NinjaState.Falling;
+      // A greased wall gives no grip: the ninja slides down it as fast as it would fall.
+      else if (!this.wallGreased) this.yspeed *= NINJA.FRICTION_WALL;
     } else if (this.yspeed > 0 && this.horInput * this.wallNormal < 0) {
       if (this.state === NinjaState.Jumping) this.appliedGravity = NINJA.GRAVITY_FALL;
       this.state = NinjaState.WallSliding;

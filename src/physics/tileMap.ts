@@ -1,6 +1,7 @@
 import { CircularSegment, LinearSegment, type Segment } from './geometry';
 import {
   HALF_TILE,
+  GREASED_TILE,
   TILE_COUNT,
   TILE_SEGMENT_CIRCULAR,
   TILE_SEGMENT_DIAG,
@@ -43,6 +44,11 @@ export class TileMap {
   tileAt(x: number, y: number): number {
     if (x < 0 || y < 0 || x >= this.width || y >= this.height) return 1;
     return this.tiles[y * this.width + x];
+  }
+
+  /** Whether the point (px) is inside a greased tile. */
+  isGreasedAt(x: number, y: number): boolean {
+    return this.tileAt(Math.floor(x / TILE_SIZE), Math.floor(y / TILE_SIZE)) === GREASED_TILE;
   }
 
   private cell(x: number, y: number): Segment[] {

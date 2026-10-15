@@ -16,11 +16,14 @@
  *   22-25   raised mild slopes     (rise 12 over 24, upper half of a tile)
  *   26-29   short steep slopes     (rise 24 over 12, half a tile wide)
  *   30-33   raised steep slopes    (rise 24 over 12, with a solid half beside)
+ *   34      greased full tile: shaped like 1, but its walls have no grip (not in N)
  */
 
 export const TILE_SIZE = 24;
 export const HALF_TILE = 12;
-export const TILE_COUNT = 34;
+export const TILE_COUNT = 35;
+/** A full tile whose walls are greased: the ninja slides down them without friction, speeding up. */
+export const GREASED_TILE = 34;
 
 /**
  * Orthogonal half-tile edges contributed by each tile.
@@ -64,6 +67,7 @@ export const TILE_SEGMENT_ORTHO: readonly (readonly number[])[] = [
   /* 31 */ [-1, -1, 0, 0, 0, 1, 0, 0, 0, 0, 1, 1],
   /* 32 */ [0, -1, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1],
   /* 33 */ [-1, 0, 0, 0, 1, 1, -1, -1, 0, 0, 0, 0],
+  /* 34 */ [-1, -1, 0, 0, 1, 1, -1, -1, 0, 0, 1, 1],
 ];
 
 type Point = readonly [number, number];

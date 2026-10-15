@@ -2,7 +2,7 @@ import { EXIT_DOOR_RADIUS, EXIT_KEY_RADIUS, type ExitDoor, type ExitKey } from '
 import { CircularSegment, LinearSegment } from '../physics/geometry';
 import { GOLD_RADIUS, type Gold } from '../physics/gold';
 import { MineState, type Mine } from '../physics/mine';
-import { TILE_SIZE } from '../physics/tileDefs';
+import { GREASED_TILE, TILE_SIZE } from '../physics/tileDefs';
 import type { TileMap } from '../physics/tileMap';
 import type { Pose, P } from './animator';
 import type { Debris } from './debris';
@@ -16,6 +16,10 @@ export const COLORS = {
   /** Platform edges: a neon tube (wide faint glow, then a bright core). */
   edge: '#25d4ff',
   edgeCore: '#c9f6ff',
+  /** Greased walls: an oily orange tube instead, with drips down the block. */
+  grease: '#ff8a2a',
+  greaseCore: '#ffd9b8',
+  greaseDrip: 'rgba(255, 138, 42, 0.22)',
   ninja: '#06040e',
   /** The rim light around the ninja's dark silhouette. */
   ninjaGlow: '#5fe6ff',
@@ -146,6 +150,8 @@ export class Renderer {
         outline: new Path2D(),
         seams: new Path2D(),
         windows: WINDOW_LIGHTS.map(() => new Path2D()),
+        drips: new Path2D(),
+        greaseOutline: new Path2D(),
       });
     }
     const chunkAt = (y: number) => chunks[Math.min(chunks.length - 1, Math.max(0, Math.floor(y / TILE_SIZE / CHUNK_ROWS)))];
@@ -161,6 +167,20 @@ export class Renderer {
         chunk.solid.moveTo(ox + poly[0][0], oy + poly[0][1]);
         for (let i = 1; i < poly.length; i++) chunk.solid.lineTo(ox + poly[i][0], oy + poly[i][1]);
         chunk.solid.closePath();
+        if (id === GREASED_TILE) {
+          // A few drips down the block (the same ones every time), each ending in a drop.
+          let h = (Math.imul(tx, 2654435761) ^ Math.imul(ty, 40503)) >>> 0;
+          for (let d = 0; d < 3; d++) {
+            h = (Math.imul(h, 1103515245) + 12345) >>> 0;
+            const x = ox + 3 + d * 7 + (h % 5);
+            const top = (h >>> 4) % 6;
+            const len = 6 + ((h >>> 8) % (15 - top));
+            chunk.drips.rect(x, oy + top, 1.6, len);
+            chunk.drips.moveTo(x + 2.1, oy + top + len);
+            chunk.drips.arc(x + 0.8, oy + top + len, 1.3, 0, Math.PI * 2);
+          }
+          continue;
+        }
         if (id !== 1) continue;
         // Full tiles get panel seams and a few dimly lit windows (the same ones every time).
         chunk.seams.rect(ox, oy, TILE_SIZE, 0.6);
@@ -176,7 +196,11 @@ export class Renderer {
     // Outline exactly what the ninja collides with.
     for (const seg of map.allSegments()) {
       if (seg instanceof LinearSegment) {
-        const path = chunkAt((seg.y1 + seg.y2) / 2).outline;
+        const chunk = chunkAt((seg.y1 + seg.y2) / 2);
+        // A wall with a greased block on either side of it is greased.
+        const midY = (seg.y1 + seg.y2) / 2;
+        const greased = seg.x1 === seg.x2 && (map.isGreasedAt(seg.x1 - 1, midY) || map.isGreasedAt(seg.x1 + 1, midY));
+        const path = greased ? chunk.greaseOutline : chunk.outline;
         path.moveTo(seg.x1, seg.y1);
         path.lineTo(seg.x2, seg.y2);
       } else if (seg instanceof CircularSegment) {
@@ -245,6 +269,19 @@ export class Renderer {
     ctx.strokeStyle = COLORS.edgeCore;
     ctx.lineWidth = 0.55;
     for (const c of visible) ctx.stroke(c.outline);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = COLORS.greaseDrip;
+    for (const c of visible) ctx.fill(c.drips);
+    ctx.strokeStyle = COLORS.grease;
+    for (const [width, alpha] of [[8, 0.07], [3.2, 0.16], [1.4, 0.5]]) {
+      ctx.globalAlpha = alpha;
+      ctx.lineWidth = width;
+      for (const c of visible) ctx.stroke(c.greaseOutline);
+    }
+    ctx.globalAlpha = 0.9;
+    ctx.strokeStyle = COLORS.greaseCore;
+    ctx.lineWidth = 0.55;
+    for (const c of visible) ctx.stroke(c.greaseOutline);
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = 'source-over';
 
@@ -611,6 +648,10 @@ interface Chunk {
   seams: Path2D;
   /** One path per colour in WINDOW_LIGHTS. */
   windows: Path2D[];
+  /** Drips running down greased blocks. */
+  drips: Path2D;
+  /** The greased walls (drawn in their own colour instead of in `outline`). */
+  greaseOutline: Path2D;
 }
 
 /** A soft round glow (drawn with a radial gradient: cheaper than a shadow blur). */

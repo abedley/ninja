@@ -3,7 +3,7 @@ import type { MineState } from '../../src/physics/mine';
 import { Ninja, NinjaState } from '../../src/physics/ninja';
 import { Simulator, TICK_RATE, type Point } from '../../src/physics/simulator';
 import type { Level } from '../../src/level/level';
-import { TILE_SIZE } from '../../src/physics/tileDefs';
+import { GREASED_TILE, TILE_SIZE } from '../../src/physics/tileDefs';
 import type { TileMap } from '../../src/physics/tileMap';
 
 /**
@@ -79,7 +79,8 @@ function goal(map: TileMap, t: Point): Goal {
     const x = c % width;
     const y = (c - x) / width;
     for (const [nx, ny] of [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]]) {
-      if (map.tileAt(nx, ny) === 1) continue;
+      const tile = map.tileAt(nx, ny);
+      if (tile === 1 || tile === GREASED_TILE) continue;
       const n = ny * width + nx;
       if (field[n] >= 0) continue;
       field[n] = field[c] + 1;

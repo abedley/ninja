@@ -134,6 +134,13 @@ and `"toggleMines"` as `[[x, y], ...]`, and `"exit"` as
 outer edge of the border (tile centres are at `4n + 2`). `"time"` gives the
 level a clock, in seconds.
 
+`G` is a **greased block**, the one tile that isn't in N: solid like `#`, but
+its sides have no grip. The ninja still clings to a greased wall and can jump
+off it, but instead of slowing down it slides down as fast as it would fall,
+speeding up, so a long greased wall can end in a fatal landing. Its top and
+bottom are ordinary. In the game its slippery sides glow orange instead of
+cyan, with drips down the block.
+
 Entities work as in N++ (they don't affect movement):
 
 - **Gold** is a circle of radius 6, collected when it overlaps the ninja's
