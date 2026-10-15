@@ -11,7 +11,8 @@ import type { TileMap } from '../../src/physics/tileMap';
  * no goal height it finds a way to collect the key and reach the exit door;
  * given one, a way to get the ninja up to that height and survive the
  * landing. It proves that a level can be completed with the one-button
- * controls; the plans it finds are replayed by tests/campaign.test.ts.
+ * controls; the plans it finds for the test levels (tests/fixtures/levels.json)
+ * are replayed by tests/campaign.test.ts.
  *
  * A plan is a list of presses, each [frames released before it, frames held].
  * The plan starts with the tap that starts the level: as in the game, the

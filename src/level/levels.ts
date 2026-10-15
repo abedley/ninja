@@ -9,4 +9,5 @@ import levels from './levels.json';
  * Level data lives in levels.json so that tools can read exactly the same
  * levels as the game. See level.ts for the tile legend.
  */
-export const LEVELS: LevelDef[] = levels;
+// (JSON can't say that coordinates are [x, y] pairs, so TypeScript is told.)
+export const LEVELS = levels as LevelDef[];

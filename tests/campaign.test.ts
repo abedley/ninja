@@ -3,17 +3,25 @@ import { CampaignRun } from '../src/game/campaign';
 import { Records, RUNS_KEPT, type RecordStore } from '../src/game/records';
 import { CAMPAIGNS, resolveCampaign, type Campaign } from '../src/level/campaigns';
 import { parseLevel, type LevelDef } from '../src/level/level';
-import { LEVELS } from '../src/level/levels';
 import { NinjaState } from '../src/physics/ninja';
 import { TICK_RATE } from '../src/physics/simulator';
 import { replay, type Plan } from '../tools/solver/solver';
+import testLevels from './fixtures/levels.json';
 
 /**
- * Routes through each level found by tools/solver (one-button presses:
+ * The tests' own levels (tests/fixtures/levels.json: an earlier version of
+ * the campaign), so they don't depend on the shipped levels, which change.
+ */
+const TEST_LEVELS = testLevels as LevelDef[];
+/** A campaign of them, like the shipped one. */
+const TEST_CAMPAIGN = resolveCampaign({ name: 'Test campaign', time: 120, levels: TEST_LEVELS.map((l) => l.name) }, TEST_LEVELS);
+
+/**
+ * Routes through each test level found by tools/solver (one-button presses:
  * [frames released, frames held]): each picks up the key and reaches the exit.
- * If you change a level, re-run
- *   npx vite-node tools/solver/solve.ts "<level name>"
- * and paste the new plan here.
+ * They're frame-exact, so a change to the physics or the controls can break
+ * them; then re-solve the level (copy it into levels.json to use solve.ts) and
+ * paste the new plan here.
  */
 const ROUTES: Record<string, Plan> = {
   'First Steps': [[80,46],[26,46],[1,46],[13,46],[80,46],[80,46],[80,46],[1,35],[4,46],[80,9]],
@@ -23,13 +31,12 @@ const ROUTES: Record<string, Plan> = {
   Summit: [[80,46],[1,35],[1,46],[4,35],[1,35],[1,35],[4,46],[1,46],[8,46],[4,46],[1,46],[19,9],[80,46],[35,16],[80,46],[80,46],[4,9],[4,3],[1,3],[4,16],[13,9],[80,16],[13,3],[1,3],[1,3],[1,3],[4,9],[35,46],[46,3],[1,35],[60,9],[80,16],[4,16],[60,25],[4,3],[46,46],[1,9],[46,46],[80,3]],
 };
 
-describe('campaign levels', () => {
-  it('are every level, each with a route here', () => {
-    expect(CAMPAIGNS.flatMap((c) => c.levels.map((l) => l.name))).toEqual(Object.keys(ROUTES));
-    expect(LEVELS.map((l) => l.name)).toEqual(Object.keys(ROUTES));
+describe('the test levels', () => {
+  it('each have a route here', () => {
+    expect(TEST_LEVELS.map((l) => l.name)).toEqual(Object.keys(ROUTES));
   });
 
-  for (const def of LEVELS) {
+  for (const def of TEST_LEVELS) {
     it(`${def.name} has a key, a door and a clock, and can be finished with one button`, () => {
       const level = parseLevel(def);
       expect(level.exit).toBeDefined();
@@ -46,7 +53,7 @@ describe('campaign levels', () => {
   }
 
   it('can all be finished on one clock, carried over from level to level', () => {
-    const run = new CampaignRun(CAMPAIGNS[0]);
+    const run = new CampaignRun(TEST_CAMPAIGN);
     while (!run.finished) {
       const level = parseLevel(run.level);
       let start = 0;
@@ -96,6 +103,12 @@ describe('a campaign run', () => {
 });
 
 describe('campaigns.json', () => {
+  it('lists levels that are in levels.json', () => {
+    // (Loading it throws otherwise.)
+    expect(CAMPAIGNS.length).toBeGreaterThan(0);
+    for (const c of CAMPAIGNS) expect(c.levels.length).toBeGreaterThan(0);
+  });
+
   it('names levels from levels.json', () => {
     const levels = [tiny('a'), tiny('b')];
     expect(resolveCampaign({ name: 'c', time: 9, levels: ['b', 'a'] }, levels).levels).toEqual([levels[1], levels[0]]);

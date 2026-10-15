@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { blankLevel, check, exportText, importText, rectCells, resize, setCell, setCells, setQuarters, size } from '../src/editor/levelEdit';
 import { parseLevel, type LevelDef } from '../src/level/level';
-import { LEVELS } from '../src/level/levels';
+import testLevels from './fixtures/levels.json';
 
-const SUMMIT = LEVELS[LEVELS.length - 1];
+/** A test level (tests/fixtures/levels.json) with plenty in it. */
+const SUMMIT = (testLevels as LevelDef[])[testLevels.length - 1];
 
 const tiny = (rows: string[], extra: Partial<LevelDef> = {}): LevelDef => ({ name: 'Tiny', description: '', rows, ...extra });
 
@@ -105,7 +106,7 @@ describe('level editor operations', () => {
     const text = exportText(SUMMIT);
     expect(text.startsWith('{\n  "name": "Summit",')).toBe(true);
     // One row per line, as in levels.json.
-    expect(text).toContain(`\n    "${SUMMIT.rows[0]}",\n`);
+    expect(text).toContain(`\n    ${JSON.stringify(SUMMIT.rows[0])},\n`);
     const back = importText(text);
     expect(back).toEqual(SUMMIT);
     expect(() => parseLevel(back as LevelDef)).not.toThrow();

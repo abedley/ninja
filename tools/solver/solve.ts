@@ -1,5 +1,5 @@
 /**
- * Find a one-button route through a level and print it as a plan for tests/campaign.test.ts.
+ * Find a one-button route through a level in levels.json and print it as a plan (as used by tests/campaign.test.ts).
  *
  * Usage: npx vite-node tools/solver/solve.ts [level name] [beam width] [goal row]
  * The route collects the key and reaches the exit door; or, given a goal row

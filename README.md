@@ -20,16 +20,8 @@ A campaign is five levels on one clock, like an N++ episode: you
 start with 120 seconds, each level starts with the time left at the end of the
 one before, and each piece of gold adds two seconds. Dying (or running out of
 time) sends you back to the start of the level you're on, with the clock back
-where it was when you started it. Midnight City's levels:
-
-1. **First Steps**: jumps and gold.
-2. **Backtrack**: the door is next to the start, but the key is at the bottom;
-   ride the ramps down and climb back up.
-3. **Minefield**: short, well-timed jumps between mines.
-4. **Chimneys**: wall jumps up two mine-lined shafts, one of them wide enough
-   to need full-height kicks.
-5. **Summit**: climb a mined shaft to the key at the top, then hop the mines on
-   the ramps all the way back down to the door.
+where it was when you started it. Midnight City's levels are First Steps,
+Wall Jumping, Hop, Skip, Jump!, Risk Reward Room and Fireman.
 
 The game keeps your best time for each level (from the first tap to the door)
 and your five best runs, ranked by the time left at the end, in the browser.
@@ -190,10 +182,16 @@ npx vite-node tools/solver/solve.ts "First Steps"   # [level] [beam width] [goal
 ```
 
 It steers towards the key, then the door, by the length of the path to them
-through open tiles. `tests/campaign.test.ts` replays the route it found for
-each level, with the level's own clock, and then all five on the campaign's
-one clock. If you change a level (or add one), re-run the solver and paste
-the new route into the test.
+through open tiles.
+
+The tests don't use the shipped levels (beyond checking that the game can
+load them and the campaigns), so levels can change without touching them.
+They have their own, in `tests/fixtures/levels.json` (an earlier version of
+the campaign): `tests/campaign.test.ts` replays a solver route through each,
+with the level's own clock, and then all five on one clock. The routes are
+frame-exact, so a change to the physics or the controls can break them; then
+re-solve the level (copy it into `levels.json` to use `solve.ts`) and paste the
+new route into the test.
 
 ## Layout
 
