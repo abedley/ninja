@@ -3,7 +3,7 @@ import { clockText, el, secs } from './game/format';
 import { Game, Phase } from './game/game';
 import { Input } from './game/input';
 import { Menu } from './game/menu';
-import { browserStore, Records, RUNS_KEPT } from './game/records';
+import { browserStore, levelScore, Records, RUNS_KEPT, type LevelRecord } from './game/records';
 import { Renderer } from './game/renderer';
 import { CAMPAIGNS, type Campaign } from './level/campaigns';
 import { parseLevel, type LevelDef } from './level/level';
@@ -36,6 +36,8 @@ const single = playtest ?? LEVELS.find((l) => l.name.toLowerCase() === wanted) ?
 let run: CampaignRun | null = null;
 /** Which levels of this run set a new best time. */
 let newBests: boolean[] = [];
+/** This run's clear of each level. */
+let clears: LevelRecord[] = [];
 const records = new Records(browserStore());
 records.adoptOldRuns(CAMPAIGNS[0].name);
 // Ask the browser not to clear the records to free up space (a home-screen app on iOS may otherwise lose them).
@@ -93,6 +95,7 @@ function restartLevel(): void {
 function startRun(campaign: Campaign): void {
   run = new CampaignRun(campaign);
   newBests = [];
+  clears = [];
   game.loadLevel(run.level, run.clockAtStart);
   game.onContinue = continueRun;
   levelChanged();
@@ -203,14 +206,23 @@ let result: HTMLElement[] = [];
 function onWon(): void {
   const name = game.levelDef.name;
   const frames = game.clearFrames;
-  // Best times aren't kept for the level being playtested from the editor (but are for a campaign started from its menu).
+  const clear = { frames, gold: game.goldCollected };
+  // Best scores aren't kept for the level being playtested from the editor (but are for a campaign started from its menu).
   const testing = playtest !== null && !run;
-  const best = testing ? null : records.submitLevel(name, frames);
-  const isNewBest = best === null || frames < best;
-  if (run) newBests[run.index] = isNewBest;
-  const time = el('p', `Time ${secs(frames)} s`);
-  if (!testing) time.append(isNewBest ? el('span', 'New best!', 'new-best') : el('span', `Best ${secs(best!)} s`, 'best'));
-  const lines: HTMLElement[] = [time, el('p', `Gold ${game.goldCollected}/${game.goldTotal}`)];
+  const best = testing ? null : records.submitLevel(name, clear);
+  const isNewBest = best === null || levelScore(clear) < levelScore(best);
+  if (run) {
+    newBests[run.index] = isNewBest;
+    clears[run.index] = clear;
+  }
+  const scoreLine = el('p', `Score ${secs(levelScore(clear))} s`);
+  if (!testing) scoreLine.append(isNewBest ? el('span', 'New best!', 'new-best') : el('span', `Best ${secs(levelScore(best!))} s`, 'best'));
+  const lines: HTMLElement[] = [
+    el('p', `Time ${secs(frames)} s`),
+    el('p', `Gold ${game.goldCollected}/${game.goldTotal}`),
+    scoreLine,
+    el('p', 'Score: time less 2 s per gold', 'note'),
+  ];
 
   if (!run) {
     if (game.timed) lines.push(el('p', `Time left ${clockText(game.framesLeft)} s`));
@@ -236,16 +248,16 @@ function onWon(): void {
 
   const table = el('table', '', 'results');
   const head = table.insertRow();
-  for (const h of ['Level', 'Time', 'Best']) head.append(el('th', h));
+  for (const h of ['Level', 'Time', 'Score', 'Best']) head.append(el('th', h));
   run.levels.forEach((l, i) => {
     const row = table.insertRow();
-    row.append(el('td', `${i + 1} ${l.name}`), el('td', secs(run!.levelFrames[i])));
+    row.append(el('td', `${i + 1} ${l.name}`), el('td', secs(run!.levelFrames[i])), el('td', clears[i] ? secs(levelScore(clears[i])) : '–'));
     const lb = records.levelBest(l.name);
-    row.append(newBests[i] ? el('td', 'New!', 'new-best') : el('td', lb === null ? '–' : secs(lb)));
+    row.append(newBests[i] ? el('td', 'New!', 'new-best') : el('td', lb === null ? '–' : secs(levelScore(lb))));
   });
   const total = table.insertRow();
   total.className = 'total';
-  total.append(el('td', 'Total'), el('td', secs(run.totalFrames)), el('td'));
+  total.append(el('td', 'Total'), el('td', secs(run.totalFrames)), el('td'), el('td'));
 
   result = [el('strong', 'Campaign complete!'), score, table, runsTable(campaign, place), el('p', 'Tap to play again', 'prompt'), menuButton()];
 }
@@ -290,7 +302,7 @@ function showMessage(): void {
       } else {
         parts.push(el('p', `Clock ${clockText(run.clockAtStart)} s`));
       }
-      if (best !== null) parts.push(el('p', `Best time ${secs(best)} s`, 'best'));
+      if (best !== null) parts.push(el('p', `Best score ${secs(levelScore(best))} s`, 'best'));
       parts.push(el('p', 'Tap to start', 'prompt'));
       if (run.index > 0) parts.push(startOverButton());
       message.replaceChildren(...parts);

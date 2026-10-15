@@ -23,8 +23,10 @@ time) sends you back to the start of the level you're on, with the clock back
 where it was when you started it. Midnight City's levels are First Steps,
 Wall Jumping, Hop, Skip, Jump!, Risk Reward Room and Fireman.
 
-The game keeps your best time for each level (from the first tap to the door)
-and your five best runs, ranked by the time left at the end, in the browser.
+The game keeps your best score for each level and your five best runs, ranked
+by the time left at the end, in the browser. A level's score is the time taken
+(from the first tap to the door) less two seconds for each piece of gold, so
+lower is better, and it can go below zero.
 
 It's set at midnight in a neon city. The platforms are dark blocks edged with
 neon light, the ninja's headband glows hot pink, and gold, mines, the key and

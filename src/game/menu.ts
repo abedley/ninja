@@ -1,6 +1,6 @@
 import type { Campaign } from '../level/campaigns';
 import { clockText, el, secs } from './format';
-import type { Records } from './records';
+import { levelScore, type Records } from './records';
 
 type Screen = 'main' | 'play' | 'scores';
 
@@ -77,7 +77,7 @@ export class Menu {
       for (const l of c.levels) {
         const item = el('li', l.name);
         const best = this.records.levelBest(l.name);
-        if (best !== null) item.append(el('span', `${secs(best)} s`, 'menu-dim'));
+        if (best !== null) item.append(el('span', `${secs(levelScore(best))} s`, 'menu-dim'));
         levels.append(item);
       }
       card.append(levels);
@@ -114,14 +114,15 @@ export class Menu {
       } else {
         card.append(el('p', 'No finished runs yet. Finish all the levels on one clock to get on the board.', 'menu-dim'));
       }
-      card.append(el('h3', 'Best level times'));
+      card.append(el('h3', 'Best level scores'));
       const table = el('table', '', 'menu-table');
       c.levels.forEach((l, i) => {
         const best = this.records.levelBest(l.name);
         const row = table.insertRow();
-        row.append(el('td', `${i + 1}`), el('td', l.name), el('td', best === null ? '–' : `${secs(best)} s`));
+        row.append(el('td', `${i + 1}`), el('td', l.name), el('td', best === null ? '–' : `${secs(levelScore(best))} s`));
+        row.append(el('td', best === null ? '' : `${secs(best.frames)} s · ${best.gold} gold`, 'menu-dim menu-detail'));
       });
-      card.append(table);
+      card.append(table, el('p', 'A level’s score is the time taken less 2 s for each piece of gold.', 'menu-dim'));
       list.append(card);
     }
     return [this.header('High scores'), list];

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CampaignRun } from '../src/game/campaign';
-import { Records, RUNS_KEPT, type RecordStore } from '../src/game/records';
+import { levelScore, Records, RUNS_KEPT, type RecordStore } from '../src/game/records';
 import { CAMPAIGNS, resolveCampaign, type Campaign } from '../src/level/campaigns';
 import { parseLevel, type LevelDef } from '../src/level/level';
 import { NinjaState } from '../src/physics/ninja';
@@ -123,15 +123,32 @@ function memoryStore(): RecordStore & { data: Map<string, string> } {
 }
 
 describe('records', () => {
-  it('keep the fastest time for each level', () => {
+  it('keep the best score for each level: the time less 2 s per gold', () => {
     const records = new Records(memoryStore());
+    const clear = (frames: number, gold = 0) => ({ frames, gold });
     expect(records.levelBest('a')).toBeNull();
-    expect(records.submitLevel('a', 900)).toBeNull();
-    expect(records.submitLevel('a', 1000)).toBe(900);
-    expect(records.levelBest('a')).toBe(900);
-    expect(records.submitLevel('a', 800)).toBe(900);
-    expect(records.levelBest('a')).toBe(800);
+    expect(records.submitLevel('a', clear(900))).toBeNull();
+    expect(records.submitLevel('a', clear(1000))).toEqual(clear(900));
+    expect(records.levelBest('a')).toEqual(clear(900));
+    expect(records.submitLevel('a', clear(800))).toEqual(clear(900));
+    expect(records.levelBest('a')).toEqual(clear(800));
     expect(records.levelBest('b')).toBeNull();
+    // Slower, but with two gold: 1000 - 2 * 120 = 760 beats 800.
+    expect(levelScore(clear(1000, 2))).toBe(760);
+    records.submitLevel('a', clear(1000, 2));
+    expect(records.levelBest('a')).toEqual(clear(1000, 2));
+    // A score can go below zero.
+    records.submitLevel('a', clear(300, 5));
+    expect(levelScore(records.levelBest('a')!)).toBe(-300);
+  });
+
+  it('read best times saved before gold counted as clears with no gold', () => {
+    const store = memoryStore();
+    store.data.set('ninja.level-best.a', '900');
+    const records = new Records(store);
+    expect(records.levelBest('a')).toEqual({ frames: 900, gold: 0 });
+    expect(records.submitLevel('a', { frames: 1000, gold: 1 })).toEqual({ frames: 900, gold: 0 });
+    expect(records.levelBest('a')).toEqual({ frames: 1000, gold: 1 });
   });
 
   it(`rank runs by time left, keeping the best ${RUNS_KEPT}`, () => {
@@ -165,7 +182,7 @@ describe('records', () => {
 
   it('work without storage, and survive broken data', () => {
     const none = new Records(null);
-    expect(none.submitLevel('a', 5)).toBeNull();
+    expect(none.submitLevel('a', { frames: 5, gold: 0 })).toBeNull();
     expect(none.levelBest('a')).toBeNull();
     expect(none.submitRun('c', { timeLeft: 1, totalFrames: 1, date: 0 })).toBe(0);
     const store = memoryStore();

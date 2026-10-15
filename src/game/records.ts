@@ -1,6 +1,9 @@
+import { GOLD_TIME_BONUS } from '../physics/simulator';
+
 /**
  * Best times, kept in the browser's storage:
- *  - for each level, the fastest clear (frames from the first tap to the door);
+ *  - for each level, the best clear, scored by the time taken (frames from the
+ *    first tap to the door) less two seconds for each piece of gold;
  *  - for each campaign, the best runs, ranked by the time left on the clock
  *    at the end (the run's score: gold adds to it), with each run's total time.
  */
@@ -20,6 +23,17 @@ export interface RunRecord {
   date: number;
 }
 
+/** A clear of a level. */
+export interface LevelRecord {
+  /** Frames from the first tap to the door. */
+  frames: number;
+  /** Gold collected. */
+  gold: number;
+}
+
+/** A clear's score, in frames: the time taken less GOLD_TIME_BONUS per gold (lower is better; can be negative). */
+export const levelScore = (r: LevelRecord): number => r.frames - r.gold * GOLD_TIME_BONUS;
+
 /** How many runs the campaign table keeps. */
 export const RUNS_KEPT = 5;
 const LEVEL_PREFIX = 'ninja.level-best.';
@@ -28,16 +42,24 @@ const RUNS_PREFIX = 'ninja.campaign-runs.';
 export class Records {
   constructor(private readonly store: RecordStore | null) {}
 
-  /** The fastest clear of a level, in frames, if it has been cleared. */
-  levelBest(name: string): number | null {
-    const v = Number(this.read(LEVEL_PREFIX + name));
-    return v > 0 ? v : null;
+  /** The best-scoring clear of a level, if it has been cleared. */
+  levelBest(name: string): LevelRecord | null {
+    const text = this.read(LEVEL_PREFIX + name);
+    if (text === null) return null;
+    try {
+      const v = JSON.parse(text) as unknown;
+      // Before gold counted, only the time was kept: count it as a clear with no gold.
+      const r = typeof v === 'number' ? { frames: v, gold: 0 } : (v as LevelRecord);
+      return r && r.frames > 0 && r.gold >= 0 ? { frames: r.frames, gold: r.gold } : null;
+    } catch {
+      return null;
+    }
   }
 
   /** Record a clear of a level; returns the previous best (null if none). */
-  submitLevel(name: string, frames: number): number | null {
+  submitLevel(name: string, clear: LevelRecord): LevelRecord | null {
     const best = this.levelBest(name);
-    if (best === null || frames < best) this.write(LEVEL_PREFIX + name, String(frames));
+    if (best === null || levelScore(clear) < levelScore(best)) this.write(LEVEL_PREFIX + name, JSON.stringify(clear));
     return best;
   }
 

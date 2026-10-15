@@ -350,6 +350,11 @@ body {
   margin-left: 0;
 }
 
+#message .note {
+  color: #a9a8d4;
+  font-size: 13px;
+}
+
 #message .score {
   font-size: 19px;
   font-weight: 600;
@@ -659,6 +664,15 @@ body {
 
 .menu-table tr:first-child td {
   border-top: 0;
+}
+
+/* Scores and times stay on one line; the level name wraps instead. */
+.menu-table td:nth-child(n + 3) {
+  white-space: nowrap;
+}
+
+.menu-table td.menu-detail {
+  font-size: 12px;
 }
 
 #rotate-hint {
