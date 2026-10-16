@@ -350,11 +350,6 @@ body {
   margin-left: 0;
 }
 
-#message .note {
-  color: #a9a8d4;
-  font-size: 13px;
-}
-
 #message .score {
   font-size: 19px;
   font-weight: 600;

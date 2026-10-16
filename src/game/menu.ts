@@ -56,7 +56,7 @@ export class Menu {
 
   private mainScreen(): HTMLElement[] {
     const logo = el('h1', 'NINJA', 'logo');
-    const tagline = el('p', 'One button. A midnight city.', 'tagline');
+    const tagline = el('p', 'One button.', 'tagline');
     const items = el('nav', '', 'menu-items');
     if (this.canResume) items.append(this.button('Resume', () => this.onResume(), 'primary'));
     items.append(
@@ -86,7 +86,7 @@ export class Menu {
       card.append(levels);
       const best = this.records.runs(c.name)[0];
       card.append(
-        el('p', `${c.levels.length} levels · ${c.time} s on the clock${best ? ` · best run ${clockText(best.timeLeft)} s left` : ''}`, 'menu-dim'),
+        ...(best ? [el('p', `Best run ${clockText(best.timeLeft)} s left`, 'menu-dim')] : []),
         this.button('Play', () => this.onPlay(c), 'primary'),
       );
       list.append(card);

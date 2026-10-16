@@ -184,14 +184,6 @@ document.addEventListener('visibilitychange', () => {
 /** Seconds below which the clock turns red. */
 const LOW_TIME = 10;
 
-/** A button inside the message, for starting the campaign over. */
-function startOverButton(): HTMLButtonElement {
-  const btn = el('button', 'Start over from level 1', 'msg-btn');
-  ownTaps(btn);
-  btn.addEventListener('click', newRun);
-  return btn;
-}
-
 /** A button inside the message, back to the main menu. */
 function menuButton(): HTMLButtonElement {
   const btn = el('button', 'Main menu', 'msg-btn');
@@ -221,7 +213,6 @@ function onWon(): void {
     el('p', `Time ${secs(frames)} s`),
     el('p', `Gold ${game.goldCollected}/${game.goldTotal}`),
     scoreLine,
-    el('p', 'Score: 30 s less your time, plus 2 s per gold', 'note'),
   ];
 
   if (!run) {
@@ -296,7 +287,6 @@ function showMessage(): void {
       if (run.level.description) parts.push(el('p', run.level.description, 'description'));
       const best = records.levelBest(run.level.name);
       if (run.index === 0) {
-        parts.push(el('p', `Clock ${clockText(run.clockAtStart)} s for all ${run.levels.length} levels`));
         const top = records.runs(run.campaign.name)[0];
         if (top) parts.push(el('p', `Best run ${clockText(top.timeLeft)} s left`, 'best'));
       } else {
@@ -304,7 +294,6 @@ function showMessage(): void {
       }
       if (best !== null) parts.push(el('p', `Best score ${secs(levelScore(best))} s`, 'best'));
       parts.push(el('p', 'Tap to start', 'prompt'));
-      if (run.index > 0) parts.push(startOverButton());
       message.replaceChildren(...parts);
       break;
     }

@@ -118,9 +118,8 @@ Every level is in `src/level/levels.json`. The campaigns on the menu are in
 `src/level/campaigns.json`: each has a name, a description, the `"time"` its
 clock starts with, and its levels by name, in order. Add a campaign there and
 it appears under Play and High scores. A level's own `"time"` is used when
-it's played on its own, with `?level=<name>` (for example `?level=minefield`). From the second level on, a
-**Start over from level 1** button on the level's title card starts a new run,
-in case the clock has got too low to finish.
+it's played on its own, with `?level=<name>` (for example `?level=minefield`).
+To start a campaign over, open the menu and play it again.
 
 Levels are ASCII grids; the tile legend is in
 `src/level/level.ts`. `N` is the spawn, with the ninja facing (and setting
