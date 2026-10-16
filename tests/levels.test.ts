@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { AutoRunner } from '../src/game/autoRunner';
-import { parseLevel } from '../src/level/level';
+import { parseAscii } from './helpers';
+import { parseLevel, upgradeLevel } from '../src/level/level';
 import { LEVELS } from '../src/level/levels';
 import { Simulator } from '../src/physics/simulator';
 import { NinjaState } from '../src/physics/ninja';
@@ -16,26 +17,70 @@ describe('shipped levels', () => {
 });
 
 describe('level parser', () => {
-  it('rejects ragged rows, unknown tiles and missing spawns', () => {
-    expect(() => parseLevel({ name: 'x', rows: ['N..', '##'] })).toThrow(/expected 3/);
-    expect(() => parseLevel({ name: 'x', rows: ['N.?'] })).toThrow(/unknown tile/);
+  it('rejects ragged rows, unknown tiles, objects in the rows and missing spawns', () => {
+    const spawn: [number, number] = [6, 6];
+    expect(() => parseLevel({ name: 'x', rows: ['...', '##'], spawn })).toThrow(/expected 3/);
+    expect(() => parseLevel({ name: 'x', rows: ['..?'], spawn })).toThrow(/unknown tile/);
+    expect(() => parseLevel({ name: 'x', rows: ['..$'], spawn })).toThrow(/rows are only terrain/);
     expect(() => parseLevel({ name: 'x', rows: ['...'] })).toThrow(/no spawn/);
-    expect(() => parseLevel({ name: 'x', rows: ['N.<'] })).toThrow(/more than one spawn/);
+    expect(() => parseLevel({ name: 'x', rows: ['...'], spawn, facing: 'up' as 'left' })).toThrow(/facing/);
+    expect(() => parseLevel({ name: 'x', rows: ['...'], spawn, key: [10, 6] })).toThrow(/both an exit door/);
   });
 
-  it('places gold from $ tiles and from N++ entity coordinates', () => {
-    const level = parseLevel({ name: 'x', rows: ['N.$', '###'], gold: [[9, 7]] });
-    expect(level.map.tileAt(3, 1)).toBe(0);
-    expect(level.gold).toEqual([
-      { x: 3 * 24 + 12, y: 24 + 12 },
-      { x: 54, y: 42 },
-    ]);
+  it('places every object by N++ entity coordinates (6 px, from the outer edge of the border)', () => {
+    const level = parseLevel({
+      name: 'x',
+      rows: ['.....', '#####'],
+      spawn: [6, 6],
+      facing: 'left',
+      gold: [[9, 7], [14, 6]],
+      mines: [[20, 8]],
+      toggleMines: [[12, 4]],
+      key: [10, 6],
+      door: [22, 6],
+      launchPads: [[16, 8, 6]],
+    });
+    expect([level.spawnX, level.spawnY, level.facing]).toEqual([36, 36, -1]);
+    expect(level.gold).toEqual([{ x: 54, y: 42 }, { x: 84, y: 36 }]);
+    expect(level.mines).toEqual([{ x: 120, y: 48 }]);
+    expect(level.toggleMines).toEqual([{ x: 72, y: 24 }]);
+    expect(level.exit).toEqual({ key: { x: 60, y: 36 }, door: { x: 132, y: 36 } });
+    expect(level.launchPads).toEqual([{ x: 96, y: 48, orientation: 6 }]);
+    expect(parseLevel({ name: 'x', rows: ['.'], spawn: [6, 6] }).facing).toBe(1);
+  });
+});
+
+describe('levels in the old format', () => {
+  it('have the objects marked in their rows moved to coordinates, in the middle of their tiles', () => {
+    const old = { name: 'x', rows: ['.$*%', 'K<.D', '####'], gold: [[9, 7]] as [number, number][] };
+    expect(upgradeLevel(old)).toEqual({
+      name: 'x',
+      rows: ['....', '....', '####'],
+      spawn: [10, 10],
+      facing: 'left',
+      // Gold from the rows first, then the gold that was already listed: the order the game loaded them in.
+      gold: [[10, 6], [9, 7]],
+      mines: [[14, 6]],
+      toggleMines: [[18, 6]],
+      key: [6, 10],
+      door: [18, 10],
+    });
+  });
+
+  it('have "exit" split into the key and door', () => {
+    const old = { name: 'x', rows: ['N...'], exit: { door: [18, 6] as [number, number], key: [10, 6] as [number, number] } };
+    expect(upgradeLevel(old)).toEqual({ name: 'x', rows: ['....'], spawn: [6, 6], key: [10, 6], door: [18, 6] });
+  });
+
+  it('are left alone once up to date', () => {
+    const def = { name: 'x', rows: ['....'], spawn: [6, 6] as [number, number] };
+    expect(upgradeLevel(def)).toBe(def);
   });
 });
 
 describe('gold', () => {
   it('is collected once, by running into it', () => {
-    const level = parseLevel({ name: 'x', rows: ['N.....$..', '#########'] });
+    const level = parseAscii({ name: 'x', rows: ['N.....$..', '#########'] });
     const sim = new Simulator(level.map, level.spawnX, level.spawnY, level);
     let pickedUpOn = 0;
     for (let i = 0; i < 120; i++) {
@@ -48,7 +93,7 @@ describe('gold', () => {
   });
 
   it('is not collected when a tile overhead', () => {
-    const level = parseLevel({ name: 'x', rows: ['.........', '......$..', 'N........', '#########'] });
+    const level = parseAscii({ name: 'x', rows: ['.........', '......$..', 'N........', '#########'] });
     const sim = new Simulator(level.map, level.spawnX, level.spawnY, level);
     for (let i = 0; i < 120; i++) sim.tick(1, false);
     expect(sim.goldCollected).toBe(0);
@@ -56,11 +101,10 @@ describe('gold', () => {
 });
 
 describe('exit', () => {
-  const corridor = (row: string) => parseLevel({ name: 'x', rows: [row, '#'.repeat(row.length)] });
+  const corridor = (row: string) => parseAscii({ name: 'x', rows: [row, '#'.repeat(row.length)] });
 
   it('needs both a door (D) and a key (K)', () => {
     expect(() => corridor('N...D....')).toThrow(/both an exit door/);
-    expect(() => corridor('N.K.D.D..')).toThrow(/more than one/);
     expect(corridor('N.K...D..').exit).toEqual({ door: { x: 7 * 24 + 12, y: 36 }, key: { x: 3 * 24 + 12, y: 36 } });
   });
 
@@ -95,7 +139,7 @@ describe('exit', () => {
 
 describe('clock', () => {
   it('runs one frame per tick, and at zero the ninja dies', () => {
-    const level = parseLevel({ name: 'x', rows: ['N........', '#########'] });
+    const level = parseAscii({ name: 'x', rows: ['N........', '#########'] });
     const sim = new Simulator(level.map, level.spawnX, level.spawnY, level);
     for (let i = 0; i < 30; i++) sim.tick(0, false);
     // Untimed until a time is set.
@@ -111,7 +155,7 @@ describe('clock', () => {
   });
 
   it('gets two seconds for each piece of gold', () => {
-    const level = parseLevel({ name: 'x', rows: ['N...$$...', '#########'] });
+    const level = parseAscii({ name: 'x', rows: ['N...$$...', '#########'] });
     const sim = new Simulator(level.map, level.spawnX, level.spawnY, level);
     sim.timeLeft = 1000;
     for (let i = 0; i < 90; i++) sim.tick(1, false);
@@ -123,7 +167,7 @@ describe('clock', () => {
 describe('greased blocks (G)', () => {
   /** Jump from the floor into the wall on the right, holding jump for `hold` frames from frame 3; then a second press, if given. */
   function play(wall: string, frames: number, kick?: number) {
-    const level = parseLevel({ name: 'g', rows: [...Array(8).fill('....' + wall), 'N....'] });
+    const level = parseAscii({ name: 'g', rows: [...Array(8).fill('....' + wall), 'N....'] });
     const sim = new Simulator(level.map, level.spawnX, level.spawnY);
     const runner = new AutoRunner(sim.ninja);
     for (let i = 0; i < 20; i++) sim.tick(0, false);
@@ -140,7 +184,7 @@ describe('greased blocks (G)', () => {
 
   it('are solid blocks: the same shape, and the same to run into and land on', () => {
     const run = (block: string) => {
-      const level = parseLevel({ name: 'g', rows: ['.....', `N..${block}.`, `${block}${block}${block}${block}${block}`] });
+      const level = parseAscii({ name: 'g', rows: ['.....', `N..${block}.`, `${block}${block}${block}${block}${block}`] });
       const sim = new Simulator(level.map, level.spawnX, level.spawnY);
       const trace: number[] = [];
       for (let i = 0; i < 120; i++) {
@@ -149,7 +193,7 @@ describe('greased blocks (G)', () => {
       }
       return trace;
     };
-    expect(parseLevel({ name: 'g', rows: ['NG'] }).map.tileAt(2, 1)).toBe(GREASED_TILE);
+    expect(parseAscii({ name: 'g', rows: ['NG'] }).map.tileAt(2, 1)).toBe(GREASED_TILE);
     expect(run('G')).toEqual(run('#'));
   });
 
@@ -177,7 +221,7 @@ describe('launch pads', () => {
   const room = ['..........', '..........', '..........', '..........', 'N.........'];
   /** Run with the auto-runner (no jumps) through the room with the given pads. */
   function play(launchPads: [number, number, number][], frames: number) {
-    const level = parseLevel({ name: 'pads', rows: room, launchPads });
+    const level = parseAscii({ name: 'pads', rows: room, launchPads });
     const sim = new Simulator(level.map, level.spawnX, level.spawnY, level);
     const runner = new AutoRunner(sim.ninja, level.facing);
     const log: { x: number; y: number; dir: number }[] = [];
@@ -192,12 +236,12 @@ describe('launch pads', () => {
   }
 
   it('are placed in 6 px units, facing one of 8 ways', () => {
-    const level = parseLevel({ name: 'pads', rows: room, launchPads: [[12, 24, 6], [20, 10, 1]] });
+    const level = parseAscii({ name: 'pads', rows: room, launchPads: [[12, 24, 6], [20, 10, 1]] });
     expect(level.launchPads).toEqual([
       { x: 72, y: 144, orientation: 6 },
       { x: 120, y: 60, orientation: 1 },
     ]);
-    expect(() => parseLevel({ name: 'pads', rows: room, launchPads: [[12, 24, 8]] })).toThrow(/direction/);
+    expect(() => parseAscii({ name: 'pads', rows: room, launchPads: [[12, 24, 8]] })).toThrow(/direction/);
   });
 
   // The floor of the room is at 6 px y = 24; the spawn at x = 6.

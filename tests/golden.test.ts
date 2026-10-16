@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import golden from './fixtures/golden.json';
-import { ENTITY_GRID, parseLevel } from '../src/level/level';
+import { ENTITY_GRID, parseLevel, upgradeLevel } from '../src/level/level';
 import { Simulator, type Point } from '../src/physics/simulator';
 import type { HorInput, Ninja } from '../src/physics/ninja';
 import { TILE_SEGMENT_CIRCULAR, TILE_SEGMENT_DIAG, TILE_SEGMENT_ORTHO } from '../src/physics/tileDefs';
@@ -64,14 +64,17 @@ describe('tile tables match N++', () => {
 describe('frame-exact physics vs nclone', () => {
   for (const scenario of golden.scenarios) {
     it(scenario.name, () => {
-      const level = parseLevel({
-        name: scenario.name,
-        rows: scenario.rows,
-        mines: scenario.mines as [number, number][],
-        toggleMines: scenario.toggleMines as [number, number][],
-        exit: scenario.exit ? { door: scenario.exit[0] as [number, number], key: scenario.exit[1] as [number, number] } : undefined,
-        launchPads: 'launchPads' in scenario ? (scenario.launchPads as [number, number, number][]) : undefined,
-      });
+      // (The reference levels mark the spawn and some objects in their rows, as levels used to.)
+      const level = parseLevel(
+        upgradeLevel({
+          name: scenario.name,
+          rows: scenario.rows,
+          mines: scenario.mines as [number, number][],
+          toggleMines: scenario.toggleMines as [number, number][],
+          exit: scenario.exit ? { door: scenario.exit[0] as [number, number], key: scenario.exit[1] as [number, number] } : undefined,
+          launchPads: 'launchPads' in scenario ? (scenario.launchPads as [number, number, number][]) : undefined,
+        }),
+      );
       const gold = scenario.goldField ? [...level.gold, ...goldField()] : level.gold;
       const sim = new Simulator(level.map, level.spawnX, level.spawnY, { ...level, gold });
       // Mine states as the reference has them, updated from its log of changes.

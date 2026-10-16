@@ -1,17 +1,18 @@
 import { TILE_POLYS } from '../game/tileShapes';
-import { DEFAULT_LEVEL_TIME, TILE_LEGEND, type LevelDef } from '../level/level';
+import { DEFAULT_LEVEL_TIME, TILE_LEGEND, type Coord, type LevelDef } from '../level/level';
 import { LEVELS } from '../level/levels';
 import { PLAYTEST_PARAM, savePlaytest } from '../level/playtest';
 import { CircularSegment, LinearSegment } from '../physics/geometry';
 import { GREASED_TILE, TILE_SIZE } from '../physics/tileDefs';
 import { TileMap } from '../physics/tileMap';
 import { LAUNCH_PAD_DIRECTIONS } from '../physics/launchPad';
-import { blankLevel, check, exportText, importText, rectCells, resize, setCells, setLaunchPads, setQuarters, size, type Edge, type QuarterKind } from './levelEdit';
+import { blankLevel, check, exportText, importText, insideLevel, placeObject, rectCells, removeObjects, resize, setCells, size, type Edge, type Placement } from './levelEdit';
 
 /**
- * The level editor (served at /editor/). Paint tiles and entities on the
- * grid, then copy the exported text into src/level/levels.json. The draft is
- * kept in this browser's storage, and Playtest opens it in the game.
+ * The level editor (served at /editor/). Paint terrain tiles on the grid and
+ * place objects anywhere on N++'s 6 px entity grid, then copy the exported
+ * text into src/level/levels.json. The draft is kept in this browser's
+ * storage, and Playtest opens it in the game.
  */
 
 const DRAFT_KEY = 'ninja.editor.draft';
@@ -35,16 +36,21 @@ const COLORS = {
 };
 
 interface Tool {
-  ch: string;
   label: string;
-  /** Places this in a quarter of a tile (by coordinates) rather than filling the tile. */
-  quarter?: QuarterKind;
-  /** Places a launch pad facing this way (N++'s orientation, 0-7) at a point of the 6 px entity grid. */
-  pad?: number;
+  /** For a terrain tool: the tile it paints. */
+  tile?: string;
+  /** For an object tool: what it places on a point of the 6 px grid (null: it removes objects instead). */
+  object?: Placement | null;
+  /** How its palette button is drawn: a tile or object character, as drawCell() draws them. */
+  icon: string;
 }
 
 /** A tool's id, for its palette button. */
-const toolId = (t: Tool) => (t.pad !== undefined ? `p${t.pad}` : t.quarter ? `q${t.ch}` : t.ch);
+const toolId = (t: Tool) =>
+  t.object === undefined ? t.tile! : t.object === null ? 'erase-objects' : [t.object.kind, t.object.facing ?? '', t.object.orientation ?? ''].join('-');
+
+const tile = (ch: string, label: string): Tool => ({ tile: ch, label, icon: ch });
+const object = (icon: string, label: string, what: Placement): Tool => ({ object: what, label, icon });
 
 /** N++'s launch pad orientations, clockwise from up. */
 const PAD_TOOLS: [number, string][] = [
@@ -60,82 +66,80 @@ const PAD_TOOLS: [number, string][] = [
 
 const TOOL_GROUPS: { title: string; tools: Tool[] }[] = [
   {
-    title: 'Objects',
+    title: 'Objects (anywhere on the 6 px grid)',
     tools: [
-      { ch: 'N', label: 'Ninja start, facing right' },
-      { ch: '<', label: 'Ninja start, facing left' },
-      { ch: '$', label: 'Gold (+2 s)' },
-      { ch: '*', label: 'Mine' },
-      { ch: '%', label: 'Toggle mine (safe until touched)' },
-      { ch: '$', label: 'Gold in a quarter of a tile (up to four per tile)', quarter: 'gold' },
-      { ch: '*', label: 'Mine in a quarter of a tile (up to four per tile)', quarter: 'mines' },
-      { ch: '%', label: 'Toggle mine in a quarter of a tile (up to four per tile)', quarter: 'toggleMines' },
-      { ch: 'K', label: 'Key (opens the door)' },
-      { ch: 'D', label: 'Exit door' },
+      object('N', 'Ninja start, facing right', { kind: 'spawn' }),
+      object('<', 'Ninja start, facing left', { kind: 'spawn', facing: 'left' }),
+      object('$', 'Gold (+2 s)', { kind: 'gold' }),
+      object('*', 'Mine', { kind: 'mines' }),
+      object('%', 'Toggle mine (safe until touched)', { kind: 'toggleMines' }),
+      object('K', 'Key (opens the door)', { kind: 'key' }),
+      object('D', 'Exit door', { kind: 'door' }),
+      { object: null, label: 'Remove objects (drag over them)', icon: 'erase-objects' },
     ],
   },
   {
     title: 'Launch pads',
-    tools: PAD_TOOLS.map(([pad, way]) => ({ ch: '', label: `Launch pad, throwing ${way} (on a tile edge, or anywhere between)`, pad })),
+    tools: PAD_TOOLS.map(([orientation, way]) => object('', `Launch pad, throwing ${way}`, { kind: 'launchPads', orientation })),
   },
   {
     title: 'Blocks',
     tools: [
-      { ch: '.', label: 'Eraser (empty)' },
-      { ch: '#', label: 'Solid block' },
-      { ch: 'G', label: 'Greased block (the ninja slides down its sides, speeding up)' },
-      { ch: 'T', label: 'Half block, top' },
-      { ch: 'B', label: 'Half block, bottom' },
-      { ch: 'L', label: 'Half block, left' },
-      { ch: 'R', label: 'Half block, right' },
+      tile('.', 'Eraser (empty tile)'),
+      tile('#', 'Solid block'),
+      tile('G', 'Greased block (the ninja slides down its sides, speeding up)'),
+      tile('T', 'Half block, top'),
+      tile('B', 'Half block, bottom'),
+      tile('L', 'Half block, left'),
+      tile('R', 'Half block, right'),
     ],
   },
   {
     title: '45° slopes',
     tools: [
-      { ch: '/', label: 'Floor rising right' },
-      { ch: '\\', label: 'Floor falling right' },
-      { ch: 'y', label: 'Ceiling, solid top-left' },
-      { ch: 'z', label: 'Ceiling, solid top-right' },
+      tile('/', 'Floor rising right'),
+      tile('\\', 'Floor falling right'),
+      tile('y', 'Ceiling, solid top-left'),
+      tile('z', 'Ceiling, solid top-right'),
     ],
   },
   {
     title: 'Curves',
     tools: [
-      { ch: 'U', label: 'Quarter pipe, facing down-right' },
-      { ch: 'V', label: 'Quarter pipe, facing down-left' },
-      { ch: 'W', label: 'Quarter pipe, facing up-left' },
-      { ch: 'X', label: 'Quarter pipe, facing up-right' },
-      { ch: 'u', label: 'Rounded corner, top-left' },
-      { ch: 'v', label: 'Rounded corner, top-right' },
-      { ch: 'w', label: 'Rounded corner, bottom-right' },
-      { ch: 'x', label: 'Rounded corner, bottom-left' },
+      tile('U', 'Quarter pipe, facing down-right'),
+      tile('V', 'Quarter pipe, facing down-left'),
+      tile('W', 'Quarter pipe, facing up-left'),
+      tile('X', 'Quarter pipe, facing up-right'),
+      tile('u', 'Rounded corner, top-left'),
+      tile('v', 'Rounded corner, top-right'),
+      tile('w', 'Rounded corner, bottom-right'),
+      tile('x', 'Rounded corner, bottom-left'),
     ],
   },
   {
     title: 'Mild slopes (two tiles per ramp)',
     tools: [
-      { ch: 'c', label: 'Floor rising right, lower half (put g after it)' },
-      { ch: 'g', label: 'Floor rising right, upper half' },
-      { ch: 'h', label: 'Floor falling right, upper half (put d after it)' },
-      { ch: 'd', label: 'Floor falling right, lower half' },
-      { ch: 'a', label: 'Ceiling, short (solid top-left)' },
-      { ch: 'b', label: 'Ceiling, short (solid top-right)' },
-      { ch: 'e', label: 'Ceiling, raised (solid top-left)' },
-      { ch: 'f', label: 'Ceiling, raised (solid top-right)' },
+      tile('c', 'Floor rising right, lower half (put g after it)'),
+      tile('g', 'Floor rising right, upper half'),
+      tile('h', 'Floor falling right, upper half (put d after it)'),
+      tile('d', 'Floor falling right, lower half'),
+      tile('a', 'Ceiling, short (solid top-left)'),
+      tile('b', 'Ceiling, short (solid top-right)'),
+      tile('e', 'Ceiling, raised (solid top-left)'),
+      tile('f', 'Ceiling, raised (solid top-right)'),
     ],
   },
   {
     title: 'Steep slopes (two tiles per ramp)',
     tools: [
-      { ch: 'k', label: 'Floor rising right, top (put o below it)' },
-      { ch: 'o', label: 'Floor rising right, bottom' },
-      { ch: 'l', label: 'Floor falling right, top (put p below it)' },
-      { ch: 'p', label: 'Floor falling right, bottom' },
-      { ch: 'i', label: 'Ceiling, short (solid top-left)' },
-      { ch: 'j', label: 'Ceiling, short (solid top-right)' },
-      { ch: 'm', label: 'Ceiling, raised (solid top-left)' },
-      { ch: 'n', label: 'Ceiling, raised (solid top-right)' },
+      tile('k', 'Floor rising right, top (put o below it)'),
+      tile('o', 'Floor rising right, bottom'),
+      tile('l', 'Floor falling right, top (put p below it)'),
+      tile('p', 'Floor falling right, bottom'),
+      tile('i', 'Ceiling, short (solid top-left)'),
+      tile('j', 'Ceiling, short (solid top-right)'),
+      tile('m', 'Ceiling, raised (solid top-left)'),
+      tile('n', 'Ceiling, raised (solid top-right)'),
     ],
   },
 ];
@@ -154,16 +158,16 @@ const importBox = $<HTMLTextAreaElement>('import');
 const loadSelect = $<HTMLSelectElement>('load-select');
 
 let def: LevelDef = loadDraft() ?? blankLevel();
-let tool: Tool = ALL_TOOLS[1];
+let tool: Tool = ALL_TOOLS.find((t) => t.tile === '#')!;
 let zoom = 28;
 const undoStack: LevelDef[] = [];
 const redoStack: LevelDef[] = [];
-/** The tile (or, for a quarter-tile tool, half tile) under the pointer. */
+/** Where the tool would act: the tile under the pointer, or for an object tool the nearest point of the 6 px grid. */
 let hover: [number, number] | null = null;
 /**
  * The stroke in progress: the tool, whether it erases (right button), its last
- * position and (shift-drag) the rectangle's first corner. Positions are in
- * tiles, or in half tiles for a quarter-tile tool.
+ * position and (shift-drag, terrain only) the rectangle's first corner.
+ * Positions are in tiles, or in entity units for an object tool.
  */
 let stroke: { tool: Tool; erase: boolean; last: [number, number]; rectFrom: [number, number] | null; before: LevelDef } | null = null;
 
@@ -352,7 +356,7 @@ function buildPalette(): void {
     for (const t of group.tools) {
       const btn = document.createElement('button');
       btn.className = 'tool';
-      btn.title = t.quarter || t.pad !== undefined ? t.label : `${t.label}  (${t.ch})`;
+      btn.title = t.tile ? `${t.label}  (${t.tile})` : t.label;
       btn.setAttribute('aria-label', t.label);
       btn.dataset.tool = toolId(t);
       const icon = document.createElement('canvas');
@@ -364,15 +368,13 @@ function buildPalette(): void {
       g.scale(dpr, dpr);
       g.fillStyle = COLORS.bg;
       g.fillRect(0, 0, px, px);
-      if (t.pad !== undefined) {
+      if (t.object?.kind === 'launchPads') {
         // Set back a little, so the chevrons fit.
-        const [dx, dy] = LAUNCH_PAD_DIRECTIONS[t.pad];
-        drawPad(g, px / 2 - dx * 4, px / 2 - dy * 4, 32, t.pad);
-      } else if (t.quarter) {
-        // Four small ones, one in each quarter.
-        for (const [qx, qy] of [[0, 0], [1, 0], [0, 1], [1, 1]]) drawCell(g, t.ch, 4 + qx * 12, 4 + qy * 12, 12, true);
+        const o = t.object.orientation!;
+        const [dx, dy] = LAUNCH_PAD_DIRECTIONS[o];
+        drawPad(g, px / 2 - dx * 4, px / 2 - dy * 4, 32, o);
       } else {
-        drawCell(g, t.ch, 4, 4, 24, true);
+        drawCell(g, t.icon, 4, 4, 24, true);
       }
       btn.append(icon);
       btn.addEventListener('click', () => selectTool(t));
@@ -414,6 +416,17 @@ function drawCell(g: CanvasRenderingContext2D, ch: string, x: number, y: number,
   const cy = y + s / 2;
   g.lineWidth = Math.max(1, s / 16);
   switch (ch) {
+    case 'erase-objects':
+      // A gold piece and a mine, struck through.
+      drawCell(g, '$', x - s * 0.18, y - s * 0.18, s * 0.8);
+      drawCell(g, '*', x + s * 0.3, y + s * 0.3, s * 0.6);
+      g.strokeStyle = '#ff6a86';
+      g.lineWidth = Math.max(1.5, s / 12);
+      g.beginPath();
+      g.moveTo(x + 2, y + s - 2);
+      g.lineTo(x + s - 2, y + 2);
+      g.stroke();
+      return;
     case '.':
       if (icon) {
         // Eraser: an empty cell, crossed out.
@@ -643,79 +656,88 @@ function draw(): void {
     ctx.stroke();
   }
 
-  def.rows.forEach((row, y) => {
-    for (let x = 0; x < width; x++) drawCell(ctx, row[x], (x + 1) * zoom, (y + 1) * zoom, zoom);
-  });
-
-  // Gold and mines placed by coordinates (N++ entity units: 4 per tile, from the outer edge of the border).
+  // Objects, at their points (N++ entity units: 4 per tile, from the outer edge of the border).
   const unit = zoom / 4;
-  const placed: [string, [number, number][] | undefined, number][] = [
-    ['$', def.gold, zoom],
-    ['*', def.mines, zoom * 0.8],
-    ['%', def.toggleMines, zoom * 0.8],
-    ['D', def.exit && [def.exit.door], zoom],
-    ['K', def.exit && [def.exit.key], zoom],
-  ];
-  for (const [ch, list, s] of placed) {
-    for (const [ux, uy] of list ?? []) drawCell(ctx, ch, ux * unit - s / 2, uy * unit - s / 2, s);
-  }
-  for (const [ux, uy, o] of def.launchPads ?? []) drawPad(ctx, ux * unit, uy * unit, zoom, o);
+  drawObjects(ctx, def, unit);
 
   // What the next click would do.
   const active = stroke?.tool ?? tool;
-  if (active.pad !== undefined) {
-    // A launch pad goes on a point: show it there, faintly, with the point marked.
+  if (active.object !== undefined) {
     if (hover) {
       const [px, py] = [hover[0] * unit, hover[1] * unit];
-      if (!stroke?.erase) drawPad(ctx, px, py, zoom, active.pad, 0.55);
-      ctx.strokeStyle = COLORS.hover;
+      const erasing = active.object === null || stroke?.erase;
+      // The object to place, faintly, where it would go.
+      if (!erasing) drawObject(ctx, active.object!, px, py, unit, 0.55);
+      ctx.strokeStyle = erasing ? '#ff6a86' : COLORS.hover;
       ctx.lineWidth = 1.5;
       ctx.beginPath();
-      ctx.arc(px, py, Math.max(3, unit * 0.9), 0, Math.PI * 2);
+      ctx.arc(px, py, erasing ? ERASE_REACH * unit : Math.max(3, unit * 0.9), 0, Math.PI * 2);
       ctx.stroke();
     }
     return;
   }
-  const step = active.quarter ? zoom / 2 : zoom;
   const cells = stroke?.rectFrom && hover ? rectCells(...stroke.rectFrom, ...hover) : hover ? [hover] : [];
   ctx.strokeStyle = COLORS.hover;
   ctx.lineWidth = 2;
-  for (const [x, y] of cells) ctx.strokeRect(zoom + x * step + 1, zoom + y * step + 1, step - 2, step - 2);
+  for (const [x, y] of cells) ctx.strokeRect(zoom + x * zoom + 1, zoom + y * zoom + 1, zoom - 2, zoom - 2);
+}
+
+/** How far from the pointer objects are removed, in entity units. */
+const ERASE_REACH = 1.5;
+
+/** One object (as an object tool places it) centred at (x, y) px, at `unit` px per entity unit. */
+function drawObject(g: CanvasRenderingContext2D, what: Placement, x: number, y: number, unit: number, alpha = 1): void {
+  const tileSize = unit * 4;
+  g.save();
+  g.globalAlpha = alpha;
+  if (what.kind === 'launchPads') {
+    drawPad(g, x, y, tileSize, what.orientation ?? 6);
+  } else {
+    const ch = { spawn: what.facing === 'left' ? '<' : 'N', gold: '$', mines: '*', toggleMines: '%', key: 'K', door: 'D' }[what.kind];
+    // Mines are drawn a little smaller, so neighbours stay apart.
+    const s = what.kind === 'mines' || what.kind === 'toggleMines' ? tileSize * 0.8 : tileSize;
+    drawCell(g, ch, x - s / 2, y - s / 2, s);
+  }
+  g.restore();
+}
+
+/** All of a level's objects. */
+function drawObjects(g: CanvasRenderingContext2D, d: LevelDef, unit: number): void {
+  const at = ([x, y]: Coord, what: Placement) => drawObject(g, what, x * unit, y * unit, unit);
+  if (d.door) at(d.door, { kind: 'door' });
+  if (d.key) at(d.key, { kind: 'key' });
+  for (const p of d.gold ?? []) at(p, { kind: 'gold' });
+  for (const p of d.mines ?? []) at(p, { kind: 'mines' });
+  for (const p of d.toggleMines ?? []) at(p, { kind: 'toggleMines' });
+  for (const [x, y, orientation] of d.launchPads ?? []) at([x, y], { kind: 'launchPads', orientation });
+  if (d.spawn) at(d.spawn, { kind: 'spawn', facing: d.facing });
 }
 
 // ---------------------------------------------------------------- painting
 
-/**
- * Where a tool would act: the tile under the pointer, the half tile for a
- * quarter-tile tool, or for a launch pad the nearest point of the 6 px
- * entity grid (in entity units, from the outer edge of the border).
- */
+/** Where a tool would act: the tile under the pointer, or for an object tool the nearest point of the 6 px entity grid. */
 function toolAt(e: PointerEvent, t: Tool): [number, number] | null {
-  if (t.pad === undefined) return gridAt(e, !!t.quarter);
+  if (t.object === undefined) return gridAt(e);
   const r = canvas.getBoundingClientRect();
   const unit = zoom / 4;
-  const x = Math.round((e.clientX - r.left) / unit);
-  const y = Math.round((e.clientY - r.top) / unit);
-  const { width, height } = size(def);
-  return x >= 4 && y >= 4 && x <= 4 * (width + 1) && y <= 4 * (height + 1) ? [x, y] : null;
+  const p: Coord = [Math.round((e.clientX - r.left) / unit), Math.round((e.clientY - r.top) / unit)];
+  return insideLevel(def, p) ? p : null;
 }
 
-/** The tile under the pointer, or the half tile for a quarter-tile tool (`quarter`). */
-function gridAt(e: PointerEvent, quarter = false): [number, number] | null {
+/** The tile under the pointer. */
+function gridAt(e: PointerEvent): [number, number] | null {
   const r = canvas.getBoundingClientRect();
-  const step = quarter ? zoom / 2 : zoom;
-  const x = Math.floor((e.clientX - r.left - zoom) / step);
-  const y = Math.floor((e.clientY - r.top - zoom) / step);
-  const k = quarter ? 2 : 1;
+  const x = Math.floor((e.clientX - r.left - zoom) / zoom);
+  const y = Math.floor((e.clientY - r.top - zoom) / zoom);
   const { width, height } = size(def);
-  return x >= 0 && y >= 0 && x < width * k && y < height * k ? [x, y] : null;
+  return x >= 0 && y >= 0 && x < width && y < height ? [x, y] : null;
 }
 
-/** Paint (or erase) with a tool at some positions: tiles, half tiles for a quarter-tile tool, or entity grid points for a launch pad. */
+/** Use a tool (or erase with it) at some positions: tiles, or points of the entity grid for an object tool. */
 function paint(d: LevelDef, t: Tool, erase: boolean, at: [number, number][]): LevelDef {
-  if (t.pad !== undefined) return setLaunchPads(d, at, erase ? null : t.pad);
-  if (t.quarter) return setQuarters(d, at, erase ? null : t.quarter);
-  return setCells(d, at, erase ? '.' : t.ch);
+  if (t.object === undefined) return setCells(d, at, erase ? '.' : t.tile!);
+  if (erase || t.object === null) return removeObjects(d, at, ERASE_REACH);
+  return placeObject(d, at[at.length - 1], t.object);
 }
 
 /** Cells on the line between two cells, so fast drags don't leave gaps. */
@@ -741,8 +763,8 @@ canvas.addEventListener('pointerdown', (e) => {
   if (!at || (e.pointerType === 'mouse' && e.button !== 0 && e.button !== 2)) return;
   e.preventDefault();
   canvas.setPointerCapture(e.pointerId);
-  // (Launch pads go one per click, without rectangles.)
-  stroke = { tool, erase: e.button === 2, last: at, rectFrom: e.shiftKey && tool.pad === undefined ? at : null, before: def };
+  // (Objects go one per click, without rectangles.)
+  stroke = { tool, erase: e.button === 2, last: at, rectFrom: e.shiftKey && tool.object === undefined ? at : null, before: def };
   hover = at;
   if (!stroke.rectFrom) {
     def = paint(def, tool, stroke.erase, [at]);
@@ -754,14 +776,13 @@ canvas.addEventListener('pointerdown', (e) => {
 
 canvas.addEventListener('pointermove', (e) => {
   const active = stroke?.tool ?? tool;
-  const quarter = !!active.quarter;
   const at = toolAt(e, active);
   hover = at;
   const cell = gridAt(e);
-  const corner = at && quarter ? ` (${at[1] % 2 ? 'bottom' : 'top'} ${at[0] % 2 ? 'right' : 'left'} quarter)` : '';
-  $('status-cell').textContent = cell ? `column ${cell[0] + 1}, row ${size(def).height - cell[1]} from the bottom${corner}` : '';
-  // Dragging erases launch pads along the way, but doesn't lay one at every point.
-  const drags = active.pad === undefined || stroke?.erase;
+  const point = at && active.object !== undefined ? ` · point ${at[0]}, ${at[1]}` : '';
+  $('status-cell').textContent = cell ? `column ${cell[0] + 1}, row ${size(def).height - cell[1]} from the bottom${point}` : '';
+  // Dragging paints terrain and removes objects, but doesn't drop an object at every point.
+  const drags = active.object === undefined || active.object === null || stroke?.erase;
   if (stroke && at && drags && !stroke.rectFrom && (at[0] !== stroke.last[0] || at[1] !== stroke.last[1])) {
     def = paint(def, stroke.tool, stroke.erase, lineCells(stroke.last, at));
     stroke.last = at;

@@ -1,4 +1,4 @@
-import type { LevelDef } from './level';
+import { upgradeLevel, type LevelDef } from './level';
 
 /**
  * The level editor hands the level being edited to the game through this
@@ -19,7 +19,8 @@ export function savePlaytest(def: LevelDef): boolean {
 export function loadPlaytest(): LevelDef | null {
   try {
     const text = localStorage.getItem(PLAYTEST_KEY);
-    return text ? (JSON.parse(text) as LevelDef) : null;
+    // (A level stored by an older version of the editor is brought up to date.)
+    return text ? upgradeLevel(JSON.parse(text) as LevelDef) : null;
   } catch {
     return null;
   }

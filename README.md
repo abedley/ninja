@@ -121,17 +121,32 @@ it appears under Play and High scores. A level's own `"time"` is used when
 it's played on its own, with `?level=<name>` (for example `?level=minefield`).
 To start a campaign over, open the menu and play it again.
 
-Levels are ASCII grids; the tile legend is in
-`src/level/level.ts`. `N` is the spawn, with the ninja facing (and setting
-off) right; `<` is a spawn facing left. `$`, `*` and `%` put a piece of gold,
-a mine or a toggle mine in the middle of a tile, and `D` and `K` the exit door
-and its key. For finer placement, a level can also list `"gold"`, `"mines"`
-and `"toggleMines"` as `[[x, y], ...]`, and `"exit"` as
-`{"door": [x, y], "key": [x, y]}`, in N++'s 6 px entity units, counted from the
-outer edge of the border (tile centres are at `4n + 2`). `"launchPads"` lists
-launch pads as `[[x, y, direction], ...]` in the same units, with N++'s
-directions: 0 right, 1 down-right, 2 down, 3 down-left, 4 left, 5 up-left, 6 up,
-7 up-right. `"time"` gives the level a clock, in seconds.
+A level's `"rows"` hold only its terrain, as an ASCII grid with one character
+per tile; the tile legend is in `src/level/level.ts`. Everything else is placed
+by coordinates, in N++'s 6 px entity units: 4 per tile, counted from the outer
+edge of the border, so a tile's centre is at `4n + 2` and its edges at
+multiples of 4.
+
+```json
+"spawn": [6, 130],
+"facing": "left",
+"key": [26, 110],
+"door": [46, 18],
+"gold": [[18, 14], [34, 26]],
+"mines": [[40, 92]],
+"toggleMines": [[52, 92]],
+"launchPads": [[24, 120, 6]]
+```
+
+`"spawn"` is where the ninja starts; it faces (and sets off) right, or left with
+`"facing": "left"`. A level has both a `"key"` and a `"door"`, or neither. Each
+launch pad is `[x, y, direction]`, with N++'s directions: 0 right, 1
+down-right, 2 down, 3 down-left, 4 left, 5 up-left, 6 up, 7 up-right.
+`"time"` gives the level a clock, in seconds.
+
+Levels used to mark the spawn, gold, mines, key and door in their rows (`N`,
+`<`, `$`, `*`, `%`, `K`, `D`). `upgradeLevel()` in `src/level/level.ts`
+converts those, so older editor drafts, playtests and pasted levels still load.
 
 `G` is a **greased block**, the one tile that isn't in N: solid like `#`, but
 its sides have no grip. The ninja still clings to a greased wall and can jump
@@ -171,15 +186,16 @@ ninja when it reaches zero.
 
 The game's site has a level editor at `/editor/` (for example
 `https://<user>.github.io/<repo>/editor/`, or `http://localhost:5173/editor/`
-with `npm run dev`). Paint tiles and objects on the grid (there's a ninja
-start facing each way): drag to paint, right-click to erase, and Shift-drag to
-fill a rectangle. Three tools put gold, a mine or a toggle mine in a quarter
-of a tile, so a tile can hold up to four; they're saved in the level's
-`"gold"`, `"mines"` and `"toggleMines"` lists, and right-click with them erases
-a single quarter. Eight launch pad tools, one per direction, put a pad on any
-point of the 6 px entity grid: on a tile's edge (a floor, wall or ceiling) or
-anywhere between; a faint pad shows where it will go, and placing on a pad
-turns it. Ctrl+Z undoes. You
+with `npm run dev`). Paint terrain on the grid: drag to paint, right-click to
+erase, and Shift-drag to fill a rectangle. Objects (the ninja's start, facing
+either way, gold, mines, toggle mines, the key and door, and launch pads
+pointing any of 8 ways) go on any point of the 6 px entity grid: on a tile's
+edge (a floor, wall or ceiling), in its middle, or anywhere between. A faint
+copy shows where the next one will go. A point holds one object, so placing
+on one replaces it (or turns a launch pad), and there's only one start, key
+and door, so placing those moves them. Right-click with an object tool, or
+drag the **Remove objects** tool over them, to take objects away; painting
+terrain leaves objects where they are. Ctrl+Z undoes. You
 can resize the level at any edge, set a time limit, and load any level in the
 game to start from. **Playtest** opens the level in the game, with a pencil
 button to come back. The draft is kept in your browser.

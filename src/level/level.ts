@@ -3,17 +3,12 @@ import type { LaunchPadPlacement, Point } from '../physics/simulator';
 import { TileMap } from '../physics/tileMap';
 
 /**
- * Levels are written as ASCII grids, one character per tile. The grid is the
+ * A level's terrain is an ASCII grid, one character per tile. The grid is the
  * playable interior; a solid border is added around it automatically (as in N,
  * where levels are 42x23 tiles inside a frame).
  *
  * Legend (tile id in brackets):
  *   .  empty [0]                 #  full [1]
- *   N  ninja spawn, facing right (empty tile);  <  ninja spawn, facing left
- *   $  gold, centred in an empty tile
- *   *  mine, centred in an empty tile
- *   %  toggle mine (safe until touched, armed once the ninja moves off it), centred in an empty tile
- *   D  exit door, and K  its key (N++'s exit switch), each centred in an empty tile (at most one of each)
  *   T R B L   half tile, solid on the Top/Right/Bottom/Left [2-5]
  *   y z       45 degree ceiling, solid top-left / top-right [6, 7]
  *   / \       45 degree floor, rising / falling to the right [8, 9]
@@ -27,41 +22,42 @@ import { TileMap } from '../physics/tileMap';
  *
  * A mild ramp rising to the right is "cg" (short then raised); falling, "hd".
  * A steep ramp spans two rows in one column: "k" above "o" rising, "l" above "p" falling.
+ *
+ * Everything else (the ninja's start, gold, mines, the key and door, launch
+ * pads) is placed by coordinates, in N++'s 6 px entity units: 4 per tile,
+ * counted from the outer edge of the border, so a tile's centre is at 4n + 2
+ * and its edges at multiples of 4.
  */
 export const TILE_LEGEND = '.#TRBLyz/\\uvwxUVWXabcdefghijklmnopG';
-const SPAWN_CHAR = 'N';
-const SPAWN_LEFT_CHAR = '<';
-const GOLD_CHAR = '$';
-const MINE_CHAR = '*';
-const TOGGLE_MINE_CHAR = '%';
-const DOOR_CHAR = 'D';
-const KEY_CHAR = 'K';
 /** N++ positions entities on a quarter-tile grid. */
 export const ENTITY_GRID = TILE_SIZE / 4;
+
+/** A point in entity units (see above). */
+export type Coord = [number, number];
 
 export interface LevelDef {
   name: string;
   description?: string;
-  rows: string[];
-  /**
-   * Extra gold at arbitrary positions, as [x, y] in N++ entity units (6 px,
-   * counted from the outer edge of the border, so a tile centre is 4n + 2).
-   */
-  gold?: [number, number][];
-  /** Extra mines, in the same units as `gold`. */
-  mines?: [number, number][];
-  /** Extra toggle mines, in the same units as `gold`. */
-  toggleMines?: [number, number][];
-  /** The exit door and its key, in the same units (instead of D and K in the rows). */
-  exit?: { door: [number, number]; key: [number, number] };
-  /**
-   * Launch pads, as [x, y, direction] in the same units. The direction is one
-   * of N++'s 8: 0 right, 1 down-right, 2 down, 3 down-left, 4 left, 5 up-left,
-   * 6 up, 7 up-right.
-   */
-  launchPads?: [number, number, number][];
   /** Seconds on the clock at the start (each gold adds two). Untimed if absent. */
   time?: number;
+  /** The terrain, one string per row of tiles. */
+  rows: string[];
+  /** Where the ninja starts. (Every level needs one; it's optional here only so the editor can be without one.) */
+  spawn?: Coord;
+  /** The way the ninja faces, and sets off, at the start: right if absent. */
+  facing?: 'left' | 'right';
+  gold?: Coord[];
+  mines?: Coord[];
+  /** Toggle mines: safe until touched, armed once the ninja moves off them. */
+  toggleMines?: Coord[];
+  /** The key (N++'s exit switch) and the exit door it opens: a level has both or neither. */
+  key?: Coord;
+  door?: Coord;
+  /**
+   * Launch pads, as [x, y, direction]. The direction is one of N++'s 8: 0
+   * right, 1 down-right, 2 down, 3 down-left, 4 left, 5 up-left, 6 up, 7 up-right.
+   */
+  launchPads?: [number, number, number][];
 }
 
 /** Seconds on the clock for a new level, and what a level's score counts down from. */
@@ -84,6 +80,9 @@ export interface Level {
   time?: number;
 }
 
+/** The characters older levels used to mark objects in their rows. */
+const LEGACY_OBJECTS = 'N<$*%DK';
+
 export function parseLevel(def: LevelDef): Level {
   const innerH = def.rows.length;
   const innerW = def.rows[0]?.length ?? 0;
@@ -91,21 +90,6 @@ export function parseLevel(def: LevelDef): Level {
   const width = innerW + 2;
   const height = innerH + 2;
   const tiles = new Uint8Array(width * height).fill(1);
-  let spawn: [number, number] | null = null;
-  let facing: 1 | -1 = 1;
-  const gold: Point[] = [];
-  const mines: Point[] = [];
-  const toggleMines: Point[] = [];
-  const door: Point[] = [];
-  const key: Point[] = [];
-  const entityLists: Record<string, Point[]> = {
-    [GOLD_CHAR]: gold,
-    [MINE_CHAR]: mines,
-    [TOGGLE_MINE_CHAR]: toggleMines,
-    [DOOR_CHAR]: door,
-    [KEY_CHAR]: key,
-  };
-
   for (let y = 0; y < innerH; y++) {
     const row = def.rows[y];
     if (row.length !== innerW) {
@@ -113,56 +97,90 @@ export function parseLevel(def: LevelDef): Level {
     }
     for (let x = 0; x < innerW; x++) {
       const ch = row[x];
-      let id: number;
-      if (ch === SPAWN_CHAR || ch === SPAWN_LEFT_CHAR) {
-        if (spawn) throw new Error(`Level "${def.name}" has more than one spawn`);
-        spawn = [x + 1, y + 1];
-        facing = ch === SPAWN_LEFT_CHAR ? -1 : 1;
-        id = 0;
-      } else if (ch in entityLists) {
-        entityLists[ch].push({ x: (x + 1) * TILE_SIZE + TILE_SIZE / 2, y: (y + 1) * TILE_SIZE + TILE_SIZE / 2 });
-        id = 0;
-      } else {
-        id = TILE_LEGEND.indexOf(ch);
-        if (id < 0) throw new Error(`Level "${def.name}" has unknown tile "${ch}" at ${x},${y}`);
+      const id = TILE_LEGEND.indexOf(ch);
+      if (id < 0) {
+        if (LEGACY_OBJECTS.includes(ch)) {
+          throw new Error(`Level "${def.name}" has "${ch}" in its rows at ${x},${y}: rows are only terrain now, and objects are placed by coordinates`);
+        }
+        throw new Error(`Level "${def.name}" has unknown tile "${ch}" at ${x},${y}`);
       }
       tiles[(y + 1) * width + (x + 1)] = id;
     }
   }
-  if (!spawn) throw new Error(`Level "${def.name}" has no spawn ("${SPAWN_CHAR}", or "${SPAWN_LEFT_CHAR}" to face left)`);
-  const [sx, sy] = spawn;
-  const extra = (list: Point[], coords: [number, number][] = []) => {
-    for (const [ex, ey] of coords) list.push({ x: ex * ENTITY_GRID, y: ey * ENTITY_GRID });
-  };
-  extra(gold, def.gold);
-  extra(mines, def.mines);
-  extra(toggleMines, def.toggleMines);
-  if (def.exit) {
-    extra(door, [def.exit.door]);
-    extra(key, [def.exit.key]);
+  if (!def.spawn) throw new Error(`Level "${def.name}" has no spawn (the ninja's start, "spawn": [x, y])`);
+  if (def.facing !== undefined && def.facing !== 'left' && def.facing !== 'right') {
+    throw new Error(`Level "${def.name}" has facing "${def.facing}" (it must be "left" or "right")`);
   }
+  if (!def.key !== !def.door) throw new Error(`Level "${def.name}" needs both an exit door and a key, or neither`);
+  const point = ([x, y]: Coord): Point => ({ x: x * ENTITY_GRID, y: y * ENTITY_GRID });
   const launchPads: LaunchPadPlacement[] = [];
   for (const [px, py, orientation] of def.launchPads ?? []) {
     if (!(Number.isInteger(orientation) && orientation >= 0 && orientation < 8)) {
       throw new Error(`Level "${def.name}" has a launch pad with direction ${orientation} (it must be 0-7)`);
     }
-    launchPads.push({ x: px * ENTITY_GRID, y: py * ENTITY_GRID, orientation });
+    launchPads.push({ ...point([px, py]), orientation });
   }
-  if (door.length > 1 || key.length > 1) throw new Error(`Level "${def.name}" has more than one exit door or key`);
-  if (door.length !== key.length) throw new Error(`Level "${def.name}" needs both an exit door ("${DOOR_CHAR}") and a key ("${KEY_CHAR}")`);
-
+  const spawn = point(def.spawn);
   return {
     name: def.name,
     map: new TileMap(width, height, tiles),
-    // Spawn in the centre of the marked tile (2 px above a floor); it drops once play starts.
-    spawnX: sx * TILE_SIZE + TILE_SIZE / 2,
-    spawnY: sy * TILE_SIZE + TILE_SIZE / 2,
-    facing,
-    gold,
-    mines,
-    toggleMines,
+    // (A spawn in the centre of a tile is 2 px above a floor; the ninja drops once play starts.)
+    spawnX: spawn.x,
+    spawnY: spawn.y,
+    facing: def.facing === 'left' ? -1 : 1,
+    gold: (def.gold ?? []).map(point),
+    mines: (def.mines ?? []).map(point),
+    toggleMines: (def.toggleMines ?? []).map(point),
     launchPads,
-    exit: door.length ? { door: door[0], key: key[0] } : undefined,
+    exit: def.key && def.door ? { door: point(def.door), key: point(def.key) } : undefined,
     time: def.time,
   };
+}
+
+/** A level in an older format: objects marked in the rows, and the exit as one entry. */
+export interface LegacyLevelDef extends LevelDef {
+  exit?: { door: Coord; key: Coord };
+}
+
+/**
+ * Bring a level written in an older format up to date: objects marked in its
+ * rows (N and < the spawn facing right or left, $ gold, * mine, % toggle mine,
+ * D door, K key) move to the coordinate lists, in the middle of their tile,
+ * and "exit" becomes "key" and "door". Objects from the rows come before those
+ * already listed, the order the game used to load them in (which can matter:
+ * N++ checks touching objects in the order they were loaded). A level that's
+ * already up to date comes back as it was.
+ */
+export function upgradeLevel(def: LegacyLevelDef): LevelDef {
+  const hasLegacy = def.exit !== undefined || def.rows.some((r) => [...r].some((ch) => LEGACY_OBJECTS.includes(ch)));
+  if (!hasLegacy) return def;
+  const { exit, ...out } = def;
+  const found: Record<string, Coord[]> = {};
+  const rows = def.rows.map((row, y) =>
+    [...row]
+      .map((ch, x) => {
+        if (!LEGACY_OBJECTS.includes(ch)) return ch;
+        (found[ch] ??= []).push([4 * (x + 1) + 2, 4 * (y + 1) + 2]);
+        return '.';
+      })
+      .join(''),
+  );
+  const merged: LevelDef = { ...out, rows };
+  const list = (chars: string, existing: Coord[] = []) => [...chars].flatMap((ch) => found[ch] ?? []).concat(existing);
+  // The first spawn in reading order, whichever way it faces.
+  const spawns = [...(found.N ?? []), ...(found['<'] ?? [])].sort((a, b) => a[1] - b[1] || a[0] - b[0]);
+  if (spawns.length) {
+    merged.spawn = spawns[0];
+    if (found['<']?.includes(spawns[0])) merged.facing = 'left';
+    else delete merged.facing;
+  }
+  for (const [ch, key] of [['$', 'gold'], ['*', 'mines'], ['%', 'toggleMines']] as const) {
+    const all = list(ch, def[key]);
+    if (all.length) merged[key] = all;
+  }
+  const key = found.K?.[0] ?? exit?.key;
+  const door = found.D?.[0] ?? exit?.door;
+  if (key) merged.key = key;
+  if (door) merged.door = door;
+  return merged;
 }

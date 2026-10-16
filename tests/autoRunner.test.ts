@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { AutoRunner } from '../src/game/autoRunner';
-import { parseLevel } from '../src/level/level';
+import { parseAscii } from './helpers';
 import { MineState } from '../src/physics/mine';
 import { NinjaState } from '../src/physics/ninja';
 import { Simulator } from '../src/physics/simulator';
 
 /** Run with the auto-runner, pressing jump on the given frames (held for `hold` frames). */
 function run(rows: string[], frames: number, presses: number[] = [], hold = 20) {
-  const level = parseLevel({ name: 'test', rows });
+  const level = parseAscii({ name: 'test', rows });
   const sim = new Simulator(level.map, level.spawnX, level.spawnY);
   for (let i = 0; i < 20; i++) sim.tick(0, false);
   const runner = new AutoRunner(sim.ninja, level.facing);
@@ -24,7 +24,7 @@ function run(rows: string[], frames: number, presses: number[] = [], hold = 20) 
 
 describe('mines in levels', () => {
   it('a mine kills the ninja running into it', () => {
-    const level = parseLevel({ name: 'x', rows: ['N....*...', '#########'] });
+    const level = parseAscii({ name: 'x', rows: ['N....*...', '#########'] });
     const sim = new Simulator(level.map, level.spawnX, level.spawnY, level);
     for (let i = 0; i < 120 && sim.ninja.state < NinjaState.Dead; i++) sim.tick(1, false);
     expect(sim.ninja.state).toBe(NinjaState.Dead);
@@ -32,7 +32,7 @@ describe('mines in levels', () => {
   });
 
   it('a toggle mine is safe the first time, and armed once the ninja has passed it', () => {
-    const level = parseLevel({ name: 'x', rows: ['N...%....', '#########'] });
+    const level = parseAscii({ name: 'x', rows: ['N...%....', '#########'] });
     const sim = new Simulator(level.map, level.spawnX, level.spawnY, level);
     // Run right over it (it starts arming, then arms), then back left into it.
     for (let i = 0; i < 70; i++) sim.tick(1, false);
@@ -93,7 +93,7 @@ describe('auto-runner', () => {
   it('keeps going while it creeps slowly up a rounded block it can get over', () => {
     // Setting off as in the game (straight from the spawn, 2 px up), this run-up is just enough:
     // it crawls up the curve of w, at a few hundredths of a pixel a frame for most of a second.
-    const level = parseLevel({ name: 'test', rows: ['..........', '..........', 'N..wx.....'] });
+    const level = parseAscii({ name: 'test', rows: ['..........', '..........', 'N..wx.....'] });
     const sim = new Simulator(level.map, level.spawnX, level.spawnY);
     const runner = new AutoRunner(sim.ninja, 1);
     let f = 0;

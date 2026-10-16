@@ -75,7 +75,7 @@ describe('the test levels', () => {
   });
 });
 
-const tiny = (name: string, time?: number): LevelDef => ({ name, time, rows: ['N.KD'] });
+const tiny = (name: string, time?: number): LevelDef => ({ name, time, rows: ['....'], spawn: [6, 6], key: [14, 6], door: [18, 6] });
 const campaign = (time: number, ...levels: LevelDef[]): Campaign => ({ name: 'c', time, levels });
 
 describe('a campaign run', () => {
