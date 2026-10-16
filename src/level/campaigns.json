@@ -1,8 +1,15 @@
 [
   {
     "name": "Midnight City",
-    "description": "Five levels on one clock, from your first jumps to the summit.",
+    "description": "Welcome back, N",
     "time": 30,
     "levels": ["First Steps", "Wall Jumping", "Hop, Skip, Jump!", "Risk Reward Room", "Fireman"]
+  },
+
+  {
+    "name": "Cloud City",
+    "description": "We would be honoured if you would join us",
+    "time": 30,
+    "levels": ["Door in the Clouds"]
   }
 ]
