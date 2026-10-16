@@ -90,6 +90,21 @@ describe('auto-runner', () => {
     expect(log.every((e) => e.dir === 1)).toBe(true);
   });
 
+  it('keeps going while it creeps slowly up a rounded block it can get over', () => {
+    // Setting off as in the game (straight from the spawn, 2 px up), this run-up is just enough:
+    // it crawls up the curve of w, at a few hundredths of a pixel a frame for most of a second.
+    const level = parseLevel({ name: 'test', rows: ['..........', '..........', 'N..wx.....'] });
+    const sim = new Simulator(level.map, level.spawnX, level.spawnY);
+    const runner = new AutoRunner(sim.ninja, 1);
+    let f = 0;
+    for (; f < 300 && sim.ninja.xpos < 24 * 6 && runner.dir === 1; f++) {
+      sim.tick(...runner.control(sim.ninja, false));
+      runner.update(sim.ninja);
+    }
+    expect(runner.dir).toBe(1);
+    expect(sim.ninja.xpos).toBeGreaterThan(24 * 6);
+  });
+
   it('starts running left from a spawn facing left (<)', () => {
     const { log } = run(['.......<'], 30);
     expect(log[0].dir).toBe(-1);
