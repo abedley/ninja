@@ -33,8 +33,9 @@ export function setCell(def: LevelDef, x: number, y: number, ch: string): LevelD
 
 /**
  * Set many cells to one character (the unique ones: only the last cell gets
- * it). Erasing (".") also removes the coordinate-placed gold and mines inside
- * those cells.
+ * it). Erasing (".") also removes the coordinate-placed gold, mines and launch
+ * pads inside those cells (a pad on a tile's edge counts as in the tile below
+ * or to the right of it).
  */
 export function setCells(def: LevelDef, cells: readonly [number, number][], ch: string): LevelDef {
   const { width, height } = size(def);
@@ -89,12 +90,38 @@ export function setQuarters(def: LevelDef, quarters: readonly [number, number][]
   return QUARTER_KINDS.every((k) => out[k] === def[k]) ? def : out;
 }
 
+/**
+ * Put a launch pad facing `orientation` (N++'s 0-7, or null to remove them)
+ * at points of the 6 px entity grid, counted from the outer edge of the
+ * border. A point holds one pad, so placing replaces whatever was there.
+ */
+export function setLaunchPads(def: LevelDef, points: readonly [number, number][], orientation: number | null): LevelDef {
+  const { width, height } = size(def);
+  const max = (n: number) => UNITS_PER_TILE * (n + 1);
+  const at = new Set(points.filter(([x, y]) => x >= UNITS_PER_TILE && y >= UNITS_PER_TILE && x <= max(width) && y <= max(height)).map(([x, y]) => `${x},${y}`));
+  if (!at.size) return def;
+  const before = def.launchPads ?? [];
+  const list = before.filter(([x, y]) => !at.has(`${x},${y}`));
+  if (orientation !== null) {
+    for (const key of at) {
+      const [x, y] = key.split(',').map(Number);
+      list.push([x, y, orientation]);
+    }
+  }
+  list.sort((a, b) => a[1] - b[1] || a[0] - b[0]);
+  if (list.length === before.length && list.every((p, i) => p.every((v, j) => v === before[i][j]))) return def;
+  const out = { ...def };
+  if (list.length) out.launchPads = list;
+  else delete out.launchPads;
+  return out;
+}
+
 /** The centre of a quarter, in entity units, from its half-tile index (the border is one tile). */
 function quarterCentre(h: number): number {
   return UNITS_PER_TILE + 2 * h + 1;
 }
 
-/** The level without the coordinate-placed gold and mines for which `drop` is true. */
+/** The level without the coordinate-placed gold, mines and launch pads for which `drop` is true. */
 function withoutExtras(def: LevelDef, drop: (p: [number, number]) => boolean): LevelDef {
   let out = def;
   for (const k of ['gold', 'mines', 'toggleMines'] as const) {
@@ -104,6 +131,13 @@ function withoutExtras(def: LevelDef, drop: (p: [number, number]) => boolean): L
     const kept = list.filter((p) => !drop(p));
     if (kept.length) out[k] = kept;
     else delete out[k];
+  }
+  const pads = def.launchPads;
+  if (pads?.some(([x, y]) => drop([x, y]))) {
+    if (out === def) out = { ...def };
+    const kept = pads.filter(([x, y]) => !drop([x, y]));
+    if (kept.length) out.launchPads = kept;
+    else delete out.launchPads;
   }
   return out;
 }
@@ -146,7 +180,7 @@ export function resize(def: LevelDef, edge: Edge, count: number): LevelDef {
   let out: LevelDef = { ...def, rows };
   if (edge === 'top') out = shiftExtras(out, 0, n);
   if (edge === 'left') out = shiftExtras(out, n, 0);
-  // Gold and mines left outside a smaller level go.
+  // Gold, mines and launch pads left outside a smaller level go.
   const w = rows[0].length;
   const h = rows.length;
   const outside = ([x, y]: [number, number]) =>
@@ -161,6 +195,7 @@ function shiftExtras(def: LevelDef, dx: number, dy: number): LevelDef {
   if (def.gold) out.gold = def.gold.map(move);
   if (def.mines) out.mines = def.mines.map(move);
   if (def.toggleMines) out.toggleMines = def.toggleMines.map(move);
+  if (def.launchPads) out.launchPads = def.launchPads.map(([x, y, o]) => [...move([x, y]), o]);
   if (def.exit) out.exit = { door: move(def.exit.door), key: move(def.exit.key) };
   return out;
 }
@@ -197,8 +232,8 @@ export function exportText(def: LevelDef): string {
   if (time !== undefined) entry.time = time;
   entry.rows = rows;
   Object.assign(entry, rest);
-  // Like levels.json: two-space indents, short arrays (coordinates) on one line.
-  return JSON.stringify(entry, null, 2).replace(/\[\s+(-?\d+),\s+(-?\d+)\s+\]/g, '[$1, $2]');
+  // Like levels.json: two-space indents, short arrays (coordinates, and launch pads' direction) on one line.
+  return JSON.stringify(entry, null, 2).replace(/\[\s+(-?\d+),\s+(-?\d+)(?:,\s+(-?\d+))?\s+\]/g, (_, x, y, o) => `[${x}, ${y}${o === undefined ? '' : `, ${o}`}]`);
 }
 
 /**

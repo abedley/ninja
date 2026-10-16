@@ -103,12 +103,12 @@ def gold_field():
 ENTITY_TYPES = {'$': 2, '*': 1, '%': 21}  # gold, mine, toggle mine
 
 
-def to_map_data(rows, extra_gold=(), mines=(), toggle_mines=(), exit=None):
-    """Build an N++ map data array (tiles, ninja spawn, gold, mines, exit) from an ASCII level.
+def to_map_data(rows, extra_gold=(), mines=(), toggle_mines=(), exit=None, launch_pads=()):
+    """Build an N++ map data array (tiles, ninja spawn, gold, mines, launch pads, exit) from an ASCII level.
 
     Extra entities are (x, y) in 6px units. Entities of one type are loaded (and
     so updated) in this order: those in the rows, then the extra ones. `exit` is
-    ((door x, door y), (key x, key y)).
+    ((door x, door y), (key x, key y)). Launch pads are (x, y, orientation).
     """
     assert len(rows) == 23 and all(len(r) == 42 for r in rows)
     data = [0] * 1235
@@ -135,6 +135,8 @@ def to_map_data(rows, extra_gold=(), mines=(), toggle_mines=(), exit=None):
     for t, coords in entities.items():
         for ex, ey in coords:
             data += [t, ex, ey, 0, 0]
+    for ex, ey, orientation in launch_pads:
+        data += [10, ex, ey, orientation, 0]
     if exit:
         # Exit doors come first, then their switches in the same order (one entry each).
         (dx, dy), (kx, ky) = exit
@@ -234,15 +236,16 @@ def graze_mines(Simulator, rows, inputs, reach=15):
     return near
 
 
-def run(Simulator, rows, inputs, extra_gold=(), mines=(), toggle_mines=(), exit=None):
+def run(Simulator, rows, inputs, extra_gold=(), mines=(), toggle_mines=(), exit=None, launch_pads=()):
     sim = Simulator()
-    sim.load(to_map_data(rows, extra_gold, mines, toggle_mines, exit))
+    sim.load(to_map_data(rows, extra_gold, mines, toggle_mines, exit, launch_pads))
     # nclone files the exit switch under its door's type (3), after the door.
     key = sim.entity_dic[3][1] if exit else None
     exit_log = [None, None]  # frames the key was collected and the ninja won
     all_mines = sim.entity_dic[1] + sim.entity_dic[21]
     mine_states = [m.state for m in all_mines]
     hashes = []
+    launches = 0
     checkpoints = []
     gold = []  # [frame, total collected] whenever the total changes
     mine_log = []  # [frame, mine index, new state] for every mine state change
@@ -250,6 +253,7 @@ def run(Simulator, rows, inputs, extra_gold=(), mines=(), toggle_mines=(), exit=
         sim.tick(hor, int(jump))
         n = sim.ninja
         hashes.append(state_hash(n))
+        launches += n.launch_pad_buffer == 1  # set to 0 by the throw, then think() counts it up
         if sim.gold_collected != (gold[-1][1] if gold else 0):
             gold.append([sim.frame, sim.gold_collected])
         if key and not key.active and exit_log[0] is None:
@@ -264,6 +268,7 @@ def run(Simulator, rows, inputs, extra_gold=(), mines=(), toggle_mines=(), exit=
             checkpoints.append([sim.frame, n.xpos, n.ypos, n.xspeed, n.yspeed, n.state])
         if n.state == 6:
             break
+    run.launches = launches
     return hashes, checkpoints, gold, mine_log, exit_log
 
 
@@ -344,6 +349,58 @@ def exit_scenarios(Simulator):
             break
     for kind, (rows, inputs, m, exit) in sorted(found.items()):
         out.append((f'exit: mine and door on the same frame ({kind})', rows, inputs, False, [m], [], exit))
+    return out
+
+
+def random_launch_pads(seed, rows, count):
+    """Launch pads facing random ways at random points of the 6px grid over empty tiles (floating, or on a surface)."""
+    rng = Lcg(seed)
+    return [(x, y, int(rng.next() * 8)) for x, y in random_mines(seed + 1, rows, count)]
+
+
+def first_launch(Simulator, rows, inputs, pads):
+    """The frame (1-based) a launch pad first throws the ninja."""
+    sim = Simulator()
+    sim.load(to_map_data(rows, launch_pads=pads))
+    for hor, jump in inputs:
+        sim.tick(hor, int(jump))
+        if sim.ninja.launch_pad_buffer == 1:
+            return sim.frame
+    raise AssertionError('no launch')
+
+
+def launch_pad_scenarios(Simulator):
+    """Launch pads facing all 8 ways, met from every side."""
+    out = []
+    # Floor row 22 of FLAT is at 6px y = 92; the spawn is at x = 22.
+    for name, pad in [('an up pad on the floor', (34, 92, 6)), ('an up-right pad on the floor', (34, 92, 7)),
+                      ('a right pad on the floor', (34, 92, 0)), ('an up pad in the air', (34, 88, 6))]:
+        run_right = scripted((240, 1, False))
+        out.append((f'launch pads: run onto {name}', FLAT, run_right, [pad]))
+        launch = first_launch(Simulator, FLAT, run_right, [pad])
+        for delay in range(-1, 4):
+            # Jump around the throw: only a new jump within the pad's 3 frame buffer adds to it.
+            out.append((f'launch pads: run onto {name}, jump {delay} frames after the throw', FLAT,
+                        scripted((launch - 1 + delay, 1, False), (20, 1, True), (150, 1, False)), [pad]))
+    # A pad in mid-air for each direction, run under and jumped into from below.
+    for o in range(8):
+        out.append((f'launch pads: floating pad facing {o}, jumped into from below', FLAT,
+                    scripted((20, 1, False), (40, 1, True), (180, 1, False)), [(46, 76, o)]))
+        out.append((f'launch pads: floating pad facing {o}, fallen onto from above', with_spawn(FLAT, 9, 10),
+                    scripted((200, 0, False)), [(42, 74, o)]))
+        out.append((f'launch pads: floating pad facing {o}, run into from the side', with_spawn(FLAT, 4, 21),
+                    scripted((200, 1, False)), [(44, 88, o)]))
+    # Pads everywhere, with random inputs (and jump taps that sometimes land in the buffer).
+    for i, (x, y) in enumerate([(1, 21), (20, 21), (28, 21), (14, 6), (27, 16), (36, 13)]):
+        rows = with_spawn(PLAYGROUND, x, y)
+        sx, sy = (x + 1) * 4 + 2, (y + 1) * 4 + 2
+        pads = [p for p in random_launch_pads(11000 + i, rows, 50) if abs(p[0] - sx) > 8 or abs(p[1] - sy) > 8]
+        out.append((f'launch pads: random #{i}', rows, random_inputs(12000 + i, 1800), pads))
+    for i, (x, y) in enumerate([(2, 20), (25, 17)]):
+        rows = with_spawn(TILE_ZOO, x, y)
+        sx, sy = (x + 1) * 4 + 2, (y + 1) * 4 + 2
+        pads = [p for p in random_launch_pads(13000 + i, rows, 40) if abs(p[0] - sx) > 8 or abs(p[1] - sy) > 8]
+        out.append((f'launch pads: tile zoo random #{i}', rows, random_inputs(14000 + i, 1800), pads))
     return out
 
 
@@ -440,6 +497,14 @@ def main():
         for j, p in enumerate(hits[:2]):
             scenarios.append((f'mines: graze #{i}.{j} (distance {near[p][0]:.5f})', rows, inputs, False, [p], []))
     scenarios += exit_scenarios(Simulator)
+    for name, rows, inputs, pads in launch_pad_scenarios(Simulator):
+        scenarios.append((name, rows, inputs, False, [], [], None, pads))
+    # Gold everywhere and launch pads: gold is tested where a pad has just thrown the ninja.
+    for i, (x, y) in enumerate([(1, 21), (28, 21)]):
+        rows = with_spawn(PLAYGROUND, x, y)
+        sx, sy = (x + 1) * 4 + 2, (y + 1) * 4 + 2
+        pads = [p for p in random_launch_pads(15000 + i, rows, 40) if abs(p[0] - sx) > 8 or abs(p[1] - sy) > 8]
+        scenarios.append((f'launch pads: gold field #{i}', rows, random_inputs(16000 + i, 1800), True, [], [], None, pads))
 
     fixture = {
         'source': 'nclone @ 842190b2a216579b5b5c551e0a0b4505fc3381cc',
@@ -454,7 +519,8 @@ def main():
         field = bool(extra and extra[0])
         mines, toggles = (extra[1], extra[2]) if len(extra) > 1 else ([], [])
         exit = extra[3] if len(extra) > 3 else None
-        hashes, checkpoints, gold, mine_log, exit_log = run(Simulator, rows, inputs, gold_field() if field else (), mines, toggles, exit)
+        pads = extra[4] if len(extra) > 4 else []
+        hashes, checkpoints, gold, mine_log, exit_log = run(Simulator, rows, inputs, gold_field() if field else (), mines, toggles, exit, pads)
         fixture['scenarios'].append({
             'name': name,
             'rows': rows,
@@ -467,9 +533,11 @@ def main():
             'gold': gold,
             'mineLog': mine_log,
             **({'exit': [list(exit[0]), list(exit[1])], 'exitLog': exit_log} if exit else {}),
+            **({'launchPads': [list(p) for p in pads]} if pads else {}),
         })
         print(f'{name}: {len(hashes)} frames, final state {checkpoints[-1][5]}, gold {gold[-1][1] if gold else 0}, '
-              f'mine changes {len(mine_log)}' + (f', key/win frames {exit_log}' if exit else ''))
+              f'mine changes {len(mine_log)}' + (f', key/win frames {exit_log}' if exit else '')
+              + (f', launches {run.launches}' if pads else ''))
 
     with open(out_path, 'w') as f:
         json.dump(fixture, f, separators=(',', ':'))

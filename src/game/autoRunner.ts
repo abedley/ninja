@@ -19,12 +19,14 @@ const STUCK_FRAMES = 30;
  *    else that stops it getting any further on the ground (being wedged under
  *    a sloping ceiling, or pushed back down a slope too steep to run up);
  *  - in the air it keeps pushing into the wall it hit, so it clings and slides
- *    down; jumping off the wall sends it the other way.
+ *    down; jumping off the wall sends it the other way;
+ *  - a launch pad that throws it sideways sets it running the way it was thrown.
  */
 export class AutoRunner {
   dir: -1 | 1;
   private wasHeld = false;
   private seenWallJumps: number;
+  private seenLaunches: number;
   /** Where the ninja was when it last made progress (or left the ground, or turned). */
   private progressX: number;
   /** Frames on the ground since then. */
@@ -33,6 +35,7 @@ export class AutoRunner {
   constructor(ninja: Ninja, dir: -1 | 1 = 1) {
     this.dir = dir;
     this.seenWallJumps = ninja.wallJumps;
+    this.seenLaunches = ninja.launches;
     this.progressX = ninja.xpos;
   }
 
@@ -60,6 +63,11 @@ export class AutoRunner {
       this.dir = away(ninja.wallNormal);
     } else if (ninja.walled && !ninja.airborn) {
       this.dir = away(ninja.wallNormal);
+    }
+    if (ninja.launches !== this.seenLaunches) {
+      this.seenLaunches = ninja.launches;
+      // (Straight up or down leaves it as it was.)
+      if (Math.abs(ninja.xlpBoostNormalized) > 0.01) this.dir = ninja.xlpBoostNormalized < 0 ? -1 : 1;
     }
     if (ninja.airborn || this.dir !== dir || (ninja.xpos - this.progressX) * this.dir >= MIN_PROGRESS) {
       this.progressX = ninja.xpos;

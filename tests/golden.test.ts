@@ -70,6 +70,7 @@ describe('frame-exact physics vs nclone', () => {
         mines: scenario.mines as [number, number][],
         toggleMines: scenario.toggleMines as [number, number][],
         exit: scenario.exit ? { door: scenario.exit[0] as [number, number], key: scenario.exit[1] as [number, number] } : undefined,
+        launchPads: 'launchPads' in scenario ? (scenario.launchPads as [number, number, number][]) : undefined,
       });
       const gold = scenario.goldField ? [...level.gold, ...goldField()] : level.gold;
       const sim = new Simulator(level.map, level.spawnX, level.spawnY, { ...level, gold });

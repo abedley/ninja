@@ -85,6 +85,13 @@ export class Ninja {
   jumpBuffer = -1;
   floorBuffer = -1;
   wallBuffer = -1;
+  /** Frames since a launch pad threw the ninja; a new jump within 3 frames adds to the throw. */
+  launchPadBuffer = -1;
+  /** The direction of the last launch pad throw. */
+  xlpBoostNormalized = 0;
+  ylpBoostNormalized = 0;
+  /** Number of launch pad throws so far (bookkeeping for the game; no effect on the physics). */
+  launches = 0;
 
   floorCount = 0;
   ceilingCount = 0;
@@ -247,10 +254,46 @@ export class Ninja {
     }
   }
 
+  /**
+   * Thrown by a launch pad (nclone's launch pad branch of post_collision).
+   * The boost is the pad's; N++ scales it by 2/3 (its 40 to 60 fps conversion).
+   */
+  launch(padXBoost: number, padYBoost: number): void {
+    this.launches++;
+    const xboost = (padXBoost * 2) / 3;
+    const yboost = (padYBoost * 2) / 3;
+    this.xpos += xboost;
+    this.ypos += yboost;
+    this.xspeed = xboost;
+    this.yspeed = yboost;
+    this.floorCount = 0;
+    this.floorBuffer = -1;
+    const boostScalar = Math.sqrt(xboost * xboost + yboost * yboost);
+    this.xlpBoostNormalized = xboost / boostScalar;
+    this.ylpBoostNormalized = yboost / boostScalar;
+    this.launchPadBuffer = 0;
+    if (this.state === NinjaState.Jumping) this.appliedGravity = NINJA.GRAVITY_FALL;
+    this.state = NinjaState.Falling;
+  }
+
+  /** A jump just after a launch pad throw: an extra push the way the pad threw. */
+  launchPadJump(): void {
+    this.floorBuffer = -1;
+    this.wallBuffer = -1;
+    this.jumpBuffer = -1;
+    this.launchPadBuffer = -1;
+    let boostScalar = 2 * Math.abs(this.xlpBoostNormalized) + 2;
+    // Straight up or down (as the original has it).
+    if (boostScalar === 2) boostScalar = 1.7;
+    this.xspeed += (this.xlpBoostNormalized * boostScalar * 2) / 3;
+    this.yspeed += (this.ylpBoostNormalized * boostScalar * 2) / 3;
+  }
+
   /** Jump off the floor. The direction depends on the slope and on which way the ninja moves and pushes. */
   floorJump(): void {
     this.jumpBuffer = -1;
     this.floorBuffer = -1;
+    this.launchPadBuffer = -1;
     this.state = NinjaState.Jumping;
     this.appliedGravity = NINJA.GRAVITY_JUMP;
     let jx: number;
@@ -312,6 +355,7 @@ export class Ninja {
     this.ypos += jy;
     this.jumpBuffer = -1;
     this.wallBuffer = -1;
+    this.launchPadBuffer = -1;
     this.jumpDuration = 0;
   }
 
@@ -320,7 +364,10 @@ export class Ninja {
     const newJumpCheck = this.jumpInput && !this.jumpInputOld;
     this.jumpInputOld = this.jumpInput;
 
-    // Advance input buffers (each lasts 5 frames).
+    // Advance input buffers (each lasts 5 frames, except the launch pad's 4).
+    if (this.launchPadBuffer > -1 && this.launchPadBuffer < 3) this.launchPadBuffer++;
+    else this.launchPadBuffer = -1;
+    const inLaunchPadBuffer = this.launchPadBuffer > -1 && this.launchPadBuffer < 4;
     if (this.jumpBuffer > -1 && this.jumpBuffer < 5) this.jumpBuffer++;
     else this.jumpBuffer = -1;
     const inJumpBuffer = this.jumpBuffer > -1 && this.jumpBuffer < 5;
@@ -350,7 +397,7 @@ export class Ninja {
     if (!this.airborn) {
       this.thinkGrounded(newJumpCheck, inJumpBuffer);
     } else {
-      this.thinkAirborne(newJumpCheck, inJumpBuffer, inWallBuffer, inFloorBuffer);
+      this.thinkAirborne(newJumpCheck, inJumpBuffer, inWallBuffer, inFloorBuffer, inLaunchPadBuffer);
     }
   }
 
@@ -423,7 +470,13 @@ export class Ninja {
     this.state = NinjaState.GroundSliding;
   }
 
-  private thinkAirborne(newJumpCheck: boolean, inJumpBuffer: boolean, inWallBuffer: boolean, inFloorBuffer: boolean): void {
+  private thinkAirborne(
+    newJumpCheck: boolean,
+    inJumpBuffer: boolean,
+    inWallBuffer: boolean,
+    inFloorBuffer: boolean,
+    inLaunchPadBuffer: boolean,
+  ): void {
     const xspeedNew = this.xspeed + NINJA.AIR_ACCEL * this.horInput;
     if (Math.abs(xspeedNew) < NINJA.MAX_HOR_SPEED) this.xspeed = xspeedNew;
 
@@ -447,6 +500,10 @@ export class Ninja {
       }
       if (inFloorBuffer) {
         this.floorJump();
+        return;
+      }
+      if (inLaunchPadBuffer && newJumpCheck) {
+        this.launchPadJump();
         return;
       }
     }

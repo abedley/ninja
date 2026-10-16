@@ -84,7 +84,7 @@ reverse-engineered N++ simulator, used to validate real N++ replays. N++ uses N'
 model, run at 60 fps instead of 40 (its per-frame multipliers are N's raised to
 the power 2/3).
 
-`tests/golden.test.ts` replays about 110,000 frames of scripted and random input
+`tests/golden.test.ts` replays about 140,000 frames of scripted and random input
 through both simulators. Our ninja must match **bit for bit on every frame**
 (position, speed and state). The traces cover running, jump buffering, wall
 slides, both kinds of wall jump, slope jumps, every tile type and impact deaths.
@@ -94,7 +94,8 @@ gold on every point of N++'s 6 px entity grid, and others place mines, keys
 and doors where the ninja passes just inside or just outside touching
 distance, to test the boundaries. Others check the order N++ tests entities
 in, which decides what happens when the ninja touches the door and a mine (or
-gold) on the same frame.
+gold) on the same frame. Launch pads face all 8 ways and are met from every
+side, with jumps timed on and around the frames they throw.
 
 The reference is run with one change: Python's `x**2` is evaluated as `x*x`.
 Python's `**` calls the C library's `pow()`, which on glibc differs from `x*x` in
@@ -128,8 +129,10 @@ a mine or a toggle mine in the middle of a tile, and `D` and `K` the exit door
 and its key. For finer placement, a level can also list `"gold"`, `"mines"`
 and `"toggleMines"` as `[[x, y], ...]`, and `"exit"` as
 `{"door": [x, y], "key": [x, y]}`, in N++'s 6 px entity units, counted from the
-outer edge of the border (tile centres are at `4n + 2`). `"time"` gives the
-level a clock, in seconds.
+outer edge of the border (tile centres are at `4n + 2`). `"launchPads"` lists
+launch pads as `[[x, y, direction], ...]` in the same units, with N++'s
+directions: 0 right, 1 down-right, 2 down, 3 down-left, 4 left, 5 up-left, 6 up,
+7 up-right. `"time"` gives the level a clock, in seconds.
 
 `G` is a **greased block**, the one tile that isn't in N: solid like `#`, but
 its sides have no grip. The ninja still clings to a greased wall and can jump
@@ -138,7 +141,7 @@ speeding up, so a long greased wall can end in a fatal landing. Its top and
 bottom are ordinary. In the game its slippery sides glow orange instead of
 cyan, with drips down the block.
 
-Entities work as in N++ (they don't affect movement):
+Entities work as in N++ (all but launch pads leave movement alone):
 
 - **Gold** is a circle of radius 6, collected when it overlaps the ninja's
   circle (radius 10) during the collision step.
@@ -150,6 +153,15 @@ Entities work as in N++ (they don't affect movement):
   12). The door can be entered from the frame after the key is collected;
   touching it completes the level and the ninja celebrates, no longer
   responding to input.
+- **Launch pads** (radius 6) throw the ninja the way they point, at 3.4 px a
+  frame, or 6.9 px a frame for a pad pointing straight up; upward ones throw
+  harder. Jumping within 3 frames of the throw adds a little more. In N++ a pad
+  is always fixed to a wall, floor or ceiling; here it can also float in
+  mid-air. The physics is N++'s, which already works from behind and from the
+  sides (N++ just never lets the ninja get there), so a floating pad works
+  whichever way the ninja comes at it. From in front it fires only once the
+  ninja is within 10 px of it, which is when it lands on a floor pad. When a
+  pad throws the ninja sideways, the auto-run follows it.
 
 The clock isn't part of N++'s physics: N has one, but nclone doesn't model it.
 Here it starts with the first tap, counts down one frame per tick, stops when
@@ -165,7 +177,10 @@ start facing each way): drag to paint, right-click to erase, and Shift-drag to
 fill a rectangle. Three tools put gold, a mine or a toggle mine in a quarter
 of a tile, so a tile can hold up to four; they're saved in the level's
 `"gold"`, `"mines"` and `"toggleMines"` lists, and right-click with them erases
-a single quarter. Ctrl+Z undoes. You
+a single quarter. Eight launch pad tools, one per direction, put a pad on any
+point of the 6 px entity grid: on a tile's edge (a floor, wall or ceiling) or
+anywhere between; a faint pad shows where it will go, and placing on a pad
+turns it. Ctrl+Z undoes. You
 can resize the level at any edge, set a time limit, and load any level in the
 game to start from. **Playtest** opens the level in the game, with a pencil
 button to come back. The draft is kept in your browser.
@@ -217,6 +232,6 @@ which keeps replays and tests deterministic.
 
 ## Not done yet
 
-- Entities: drones, thwumps, launch pads, bounce blocks, one-way platforms, other doors
+- Entities: drones, thwumps, bounce blocks, one-way platforms, other doors
 - Ragdoll death (the current one is a cosmetic stand-in)
 - Real ninja animation data (current poses are procedural)

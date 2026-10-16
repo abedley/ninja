@@ -5,7 +5,8 @@ import { PLAYTEST_PARAM, savePlaytest } from '../level/playtest';
 import { CircularSegment, LinearSegment } from '../physics/geometry';
 import { GREASED_TILE, TILE_SIZE } from '../physics/tileDefs';
 import { TileMap } from '../physics/tileMap';
-import { blankLevel, check, exportText, importText, rectCells, resize, setCells, setQuarters, size, type Edge, type QuarterKind } from './levelEdit';
+import { LAUNCH_PAD_DIRECTIONS } from '../physics/launchPad';
+import { blankLevel, check, exportText, importText, rectCells, resize, setCells, setLaunchPads, setQuarters, size, type Edge, type QuarterKind } from './levelEdit';
 
 /**
  * The level editor (served at /editor/). Paint tiles and entities on the
@@ -27,6 +28,8 @@ const COLORS = {
   mine: '#ff2d55',
   key: '#9dff4a',
   door: '#8a5cff',
+  pad: '#c86bff',
+  padLight: '#f1dcff',
   ninja: '#ff2bd6',
   hover: '#ffffff',
 };
@@ -36,10 +39,24 @@ interface Tool {
   label: string;
   /** Places this in a quarter of a tile (by coordinates) rather than filling the tile. */
   quarter?: QuarterKind;
+  /** Places a launch pad facing this way (N++'s orientation, 0-7) at a point of the 6 px entity grid. */
+  pad?: number;
 }
 
 /** A tool's id, for its palette button. */
-const toolId = (t: Tool) => (t.quarter ? `q${t.ch}` : t.ch);
+const toolId = (t: Tool) => (t.pad !== undefined ? `p${t.pad}` : t.quarter ? `q${t.ch}` : t.ch);
+
+/** N++'s launch pad orientations, clockwise from up. */
+const PAD_TOOLS: [number, string][] = [
+  [6, 'up'],
+  [7, 'up and right'],
+  [0, 'right'],
+  [1, 'down and right'],
+  [2, 'down'],
+  [3, 'down and left'],
+  [4, 'left'],
+  [5, 'up and left'],
+];
 
 const TOOL_GROUPS: { title: string; tools: Tool[] }[] = [
   {
@@ -56,6 +73,10 @@ const TOOL_GROUPS: { title: string; tools: Tool[] }[] = [
       { ch: 'K', label: 'Key (opens the door)' },
       { ch: 'D', label: 'Exit door' },
     ],
+  },
+  {
+    title: 'Launch pads',
+    tools: PAD_TOOLS.map(([pad, way]) => ({ ch: '', label: `Launch pad, throwing ${way} (on a tile edge, or anywhere between)`, pad })),
   },
   {
     title: 'Blocks',
@@ -331,7 +352,7 @@ function buildPalette(): void {
     for (const t of group.tools) {
       const btn = document.createElement('button');
       btn.className = 'tool';
-      btn.title = t.quarter ? t.label : `${t.label}  (${t.ch})`;
+      btn.title = t.quarter || t.pad !== undefined ? t.label : `${t.label}  (${t.ch})`;
       btn.setAttribute('aria-label', t.label);
       btn.dataset.tool = toolId(t);
       const icon = document.createElement('canvas');
@@ -343,7 +364,11 @@ function buildPalette(): void {
       g.scale(dpr, dpr);
       g.fillStyle = COLORS.bg;
       g.fillRect(0, 0, px, px);
-      if (t.quarter) {
+      if (t.pad !== undefined) {
+        // Set back a little, so the chevrons fit.
+        const [dx, dy] = LAUNCH_PAD_DIRECTIONS[t.pad];
+        drawPad(g, px / 2 - dx * 4, px / 2 - dy * 4, 32, t.pad);
+      } else if (t.quarter) {
         // Four small ones, one in each quarter.
         for (const [qx, qy] of [[0, 0], [1, 0], [0, 1], [1, 1]]) drawCell(g, t.ch, 4 + qx * 12, 4 + qy * 12, 12, true);
       } else {
@@ -494,6 +519,35 @@ function drawCell(g: CanvasRenderingContext2D, ch: string, x: number, y: number,
   }
 }
 
+/** A launch pad centred at (x, y), at `s` px per tile: a plate across the way it throws, with a chevron ahead. */
+function drawPad(g: CanvasRenderingContext2D, x: number, y: number, s: number, orientation: number, alpha = 1): void {
+  const [dx, dy] = LAUNCH_PAD_DIRECTIONS[orientation];
+  const k = s / TILE_SIZE;
+  g.save();
+  g.globalAlpha = alpha;
+  g.translate(x, y);
+  g.rotate(Math.atan2(dy, dx));
+  g.scale(k, k);
+  g.fillStyle = '#2a0f45';
+  g.strokeStyle = COLORS.pad;
+  g.lineWidth = 1.2;
+  g.beginPath();
+  g.rect(-1.8, -6.5, 3.6, 13);
+  g.fill();
+  g.stroke();
+  g.strokeStyle = COLORS.padLight;
+  g.lineCap = 'round';
+  g.lineJoin = 'round';
+  g.beginPath();
+  for (const at of [6, 10]) {
+    g.moveTo(at - 2.6, -3.8);
+    g.lineTo(at, 0);
+    g.lineTo(at - 2.6, 3.8);
+  }
+  g.stroke();
+  g.restore();
+}
+
 function tileMapOf(d: LevelDef): TileMap {
   const { width, height } = size(d);
   const tiles = new Uint8Array((width + 2) * (height + 2)).fill(1);
@@ -605,9 +659,24 @@ function draw(): void {
   for (const [ch, list, s] of placed) {
     for (const [ux, uy] of list ?? []) drawCell(ctx, ch, ux * unit - s / 2, uy * unit - s / 2, s);
   }
+  for (const [ux, uy, o] of def.launchPads ?? []) drawPad(ctx, ux * unit, uy * unit, zoom, o);
 
   // What the next click would do.
-  const step = (stroke?.tool ?? tool).quarter ? zoom / 2 : zoom;
+  const active = stroke?.tool ?? tool;
+  if (active.pad !== undefined) {
+    // A launch pad goes on a point: show it there, faintly, with the point marked.
+    if (hover) {
+      const [px, py] = [hover[0] * unit, hover[1] * unit];
+      if (!stroke?.erase) drawPad(ctx, px, py, zoom, active.pad, 0.55);
+      ctx.strokeStyle = COLORS.hover;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(px, py, Math.max(3, unit * 0.9), 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    return;
+  }
+  const step = active.quarter ? zoom / 2 : zoom;
   const cells = stroke?.rectFrom && hover ? rectCells(...stroke.rectFrom, ...hover) : hover ? [hover] : [];
   ctx.strokeStyle = COLORS.hover;
   ctx.lineWidth = 2;
@@ -615,6 +684,21 @@ function draw(): void {
 }
 
 // ---------------------------------------------------------------- painting
+
+/**
+ * Where a tool would act: the tile under the pointer, the half tile for a
+ * quarter-tile tool, or for a launch pad the nearest point of the 6 px
+ * entity grid (in entity units, from the outer edge of the border).
+ */
+function toolAt(e: PointerEvent, t: Tool): [number, number] | null {
+  if (t.pad === undefined) return gridAt(e, !!t.quarter);
+  const r = canvas.getBoundingClientRect();
+  const unit = zoom / 4;
+  const x = Math.round((e.clientX - r.left) / unit);
+  const y = Math.round((e.clientY - r.top) / unit);
+  const { width, height } = size(def);
+  return x >= 4 && y >= 4 && x <= 4 * (width + 1) && y <= 4 * (height + 1) ? [x, y] : null;
+}
 
 /** The tile under the pointer, or the half tile for a quarter-tile tool (`quarter`). */
 function gridAt(e: PointerEvent, quarter = false): [number, number] | null {
@@ -627,8 +711,9 @@ function gridAt(e: PointerEvent, quarter = false): [number, number] | null {
   return x >= 0 && y >= 0 && x < width * k && y < height * k ? [x, y] : null;
 }
 
-/** Paint (or erase) with a tool at some positions: tiles, or half tiles for a quarter-tile tool. */
+/** Paint (or erase) with a tool at some positions: tiles, half tiles for a quarter-tile tool, or entity grid points for a launch pad. */
 function paint(d: LevelDef, t: Tool, erase: boolean, at: [number, number][]): LevelDef {
+  if (t.pad !== undefined) return setLaunchPads(d, at, erase ? null : t.pad);
   if (t.quarter) return setQuarters(d, at, erase ? null : t.quarter);
   return setCells(d, at, erase ? '.' : t.ch);
 }
@@ -652,11 +737,12 @@ btnScroll.addEventListener('click', () => {
 
 canvas.addEventListener('pointerdown', (e) => {
   if (scrollMode && e.pointerType !== 'mouse') return;
-  const at = gridAt(e, !!tool.quarter);
+  const at = toolAt(e, tool);
   if (!at || (e.pointerType === 'mouse' && e.button !== 0 && e.button !== 2)) return;
   e.preventDefault();
   canvas.setPointerCapture(e.pointerId);
-  stroke = { tool, erase: e.button === 2, last: at, rectFrom: e.shiftKey ? at : null, before: def };
+  // (Launch pads go one per click, without rectangles.)
+  stroke = { tool, erase: e.button === 2, last: at, rectFrom: e.shiftKey && tool.pad === undefined ? at : null, before: def };
   hover = at;
   if (!stroke.rectFrom) {
     def = paint(def, tool, stroke.erase, [at]);
@@ -667,13 +753,16 @@ canvas.addEventListener('pointerdown', (e) => {
 });
 
 canvas.addEventListener('pointermove', (e) => {
-  const quarter = !!(stroke?.tool ?? tool).quarter;
-  const at = gridAt(e, quarter);
+  const active = stroke?.tool ?? tool;
+  const quarter = !!active.quarter;
+  const at = toolAt(e, active);
   hover = at;
   const cell = gridAt(e);
   const corner = at && quarter ? ` (${at[1] % 2 ? 'bottom' : 'top'} ${at[0] % 2 ? 'right' : 'left'} quarter)` : '';
   $('status-cell').textContent = cell ? `column ${cell[0] + 1}, row ${size(def).height - cell[1]} from the bottom${corner}` : '';
-  if (stroke && at && !stroke.rectFrom && (at[0] !== stroke.last[0] || at[1] !== stroke.last[1])) {
+  // Dragging erases launch pads along the way, but doesn't lay one at every point.
+  const drags = active.pad === undefined || stroke?.erase;
+  if (stroke && at && drags && !stroke.rectFrom && (at[0] !== stroke.last[0] || at[1] !== stroke.last[1])) {
     def = paint(def, stroke.tool, stroke.erase, lineCells(stroke.last, at));
     stroke.last = at;
     changed();

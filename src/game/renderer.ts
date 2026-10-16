@@ -1,6 +1,7 @@
 import { EXIT_DOOR_RADIUS, EXIT_KEY_RADIUS, type ExitDoor, type ExitKey } from '../physics/exit';
 import { CircularSegment, LinearSegment } from '../physics/geometry';
 import { GOLD_RADIUS, type Gold } from '../physics/gold';
+import { LAUNCH_PAD_DIRECTIONS, LAUNCH_PAD_RADIUS, type LaunchPad } from '../physics/launchPad';
 import { MineState, type Mine } from '../physics/mine';
 import { GREASED_TILE, TILE_SIZE } from '../physics/tileDefs';
 import type { TileMap } from '../physics/tileMap';
@@ -33,6 +34,10 @@ export const COLORS = {
   mineCore: '#ff6a86',
   mineArming: '#ffb020',
   blast: '#ff2d55',
+  /** Launch pads: an electric violet plate with chevrons. */
+  launch: '#c86bff',
+  launchLight: '#f1dcff',
+  launchPlate: '#2a0f45',
   key: '#9dff4a',
   keyLight: '#e2ffc6',
   doorFrame: '#8a5cff',
@@ -218,6 +223,7 @@ export class Renderer {
     cam: Camera,
     gold: readonly Gold[],
     mines: readonly Mine[],
+    launchPads: readonly LaunchPad[],
     exit: ExitView,
     sparkles: readonly Sparkle[],
     ninja: NinjaView | null,
@@ -286,6 +292,7 @@ export class Renderer {
     ctx.globalCompositeOperation = 'source-over';
 
     this.drawExit(ctx, exit, debugCircle !== null, now);
+    this.drawLaunchPads(ctx, launchPads, debugCircle !== null, now);
     this.drawGold(ctx, gold, debugCircle !== null, now);
     this.drawMines(ctx, mines, debugCircle !== null, now);
     this.drawSparkles(ctx, sparkles);
@@ -441,6 +448,32 @@ export class Renderer {
     }
   }
 
+  /** Launch pads: a neon plate, with chevrons pointing the way it throws that light up in turn. */
+  private drawLaunchPads(ctx: CanvasRenderingContext2D, pads: readonly LaunchPad[], debug: boolean, now: number): void {
+    const sprites = this.sprites!;
+    for (const p of pads) {
+      if (!this.onScreen(p.x, p.y, LAUNCH_PAD_SPRITE_R)) continue;
+      sprites.padBase[p.orientation].stamp(ctx, p.x, p.y);
+      const t = now / 420 + (p.x + p.y) * 0.05;
+      const [near, far] = sprites.padChevrons[p.orientation];
+      ctx.globalAlpha = 0.45 + 0.55 * Math.max(0, Math.sin(t * Math.PI));
+      near.stamp(ctx, p.x, p.y);
+      ctx.globalAlpha = 0.45 + 0.55 * Math.max(0, Math.sin((t - 0.35) * Math.PI));
+      far.stamp(ctx, p.x, p.y);
+    }
+    ctx.globalAlpha = 1;
+    if (debug) {
+      ctx.strokeStyle = COLORS.debug;
+      ctx.lineWidth = 0.5;
+      ctx.beginPath();
+      for (const p of pads) {
+        ctx.moveTo(p.x + LAUNCH_PAD_RADIUS, p.y);
+        ctx.arc(p.x, p.y, LAUNCH_PAD_RADIUS, 0, Math.PI * 2);
+      }
+      ctx.stroke();
+    }
+  }
+
   /** Gold: glowing neon squares that shimmer, each a little out of step. */
   private drawGold(ctx: CanvasRenderingContext2D, gold: readonly Gold[], debug: boolean, now: number): void {
     const sprite = this.sprites!.gold;
@@ -524,6 +557,23 @@ export class Renderer {
         ctx.lineWidth = 1.5 * (1 - t) + 0.3;
         ctx.beginPath();
         ctx.arc(s.x, s.y, 5 + ease * 22, 0, Math.PI * 2);
+        ctx.stroke();
+      } else if (s.kind === 'launch') {
+        // A flash, and streaks shooting off the way the pad threw.
+        const [dx, dy] = s.dir ?? [0, -1];
+        radialGlow(ctx, s.x, s.y, 8 + ease * 16, COLORS.launch, 0.8 * (1 - t));
+        ctx.globalAlpha = 1 - t;
+        ctx.strokeStyle = COLORS.launchLight;
+        ctx.lineWidth = 1.4 * (1 - t) + 0.3;
+        ctx.beginPath();
+        for (const side of [-5, 0, 5]) {
+          const bx = s.x - dy * side;
+          const by = s.y + dx * side;
+          const from = 4 + ease * 14 - (side ? 0 : 4);
+          const to = from + 6 + 8 * (1 - t);
+          ctx.moveTo(bx + dx * from, by + dy * from);
+          ctx.lineTo(bx + dx * to, by + dy * to);
+        }
         ctx.stroke();
       } else if (s.kind === 'exit') {
         const te = s.age / sparkleLife(s);
@@ -697,6 +747,9 @@ const MINE_TURN_FRAMES = 24;
 /** Reach of a mine's glow (world px). */
 const MINE_SPRITE_R = 12;
 
+/** Reach of a launch pad's picture (world px). */
+const LAUNCH_PAD_SPRITE_R = 14;
+
 /** A small picture, drawn once at a given resolution, then stamped wherever it's needed. */
 class Sprite {
   private readonly canvas: HTMLCanvasElement;
@@ -730,6 +783,9 @@ class EntitySprites {
   readonly gold: Sprite;
   readonly armed: MineLook;
   readonly arming: MineLook;
+  /** For each of the 8 directions: a launch pad's glow and plate, and its two chevrons (nearer, further). */
+  readonly padBase: Sprite[];
+  readonly padChevrons: [Sprite, Sprite][];
   private readonly labels = new Map<string, Sprite>();
 
   constructor(readonly pxPerUnit: number) {
@@ -751,6 +807,44 @@ class EntitySprites {
     });
     this.armed = mineLook(pxPerUnit, COLORS.mineGlow, COLORS.mineCore);
     this.arming = mineLook(pxPerUnit, COLORS.mineArming, COLORS.mineArming);
+    this.padBase = LAUNCH_PAD_DIRECTIONS.map((d) => padSprite(pxPerUnit, d, (g, k) => {
+      // Drawn facing +x: a plate across the way it throws, with a glow ahead of it.
+      radialGlow(g, 3, 0, 11, COLORS.launch, 0.3);
+      g.beginPath();
+      g.moveTo(-1.6, -6.5);
+      g.lineTo(1.6, -5.5);
+      g.lineTo(1.6, 5.5);
+      g.lineTo(-1.6, 6.5);
+      g.closePath();
+      g.fillStyle = COLORS.launchPlate;
+      g.fill();
+      g.shadowColor = COLORS.launch;
+      g.shadowBlur = 3 * k;
+      g.strokeStyle = COLORS.launch;
+      g.lineWidth = 1;
+      g.stroke();
+      g.shadowBlur = 0;
+      g.strokeStyle = COLORS.launchLight;
+      g.lineWidth = 0.6;
+      g.beginPath();
+      g.moveTo(1.6, -4.5);
+      g.lineTo(1.6, 4.5);
+      g.stroke();
+    }));
+    const chevron = (at: number) => (g: CanvasRenderingContext2D, k: number) => {
+      g.shadowColor = COLORS.launch;
+      g.shadowBlur = 2.5 * k;
+      g.strokeStyle = COLORS.launchLight;
+      g.lineWidth = 1.1;
+      g.lineCap = 'round';
+      g.lineJoin = 'round';
+      g.beginPath();
+      g.moveTo(at - 2.4, -3.6);
+      g.lineTo(at, 0);
+      g.lineTo(at - 2.4, 3.6);
+      g.stroke();
+    };
+    this.padChevrons = LAUNCH_PAD_DIRECTIONS.map((d) => [padSprite(pxPerUnit, d, chevron(6)), padSprite(pxPerUnit, d, chevron(10))]);
   }
 
   /** A glowing text label, like the time a piece of gold adds. */
@@ -773,6 +867,14 @@ class EntitySprites {
     }
     return sprite;
   }
+}
+
+/** A launch pad picture, drawn facing +x by `paint`, turned to face `dir`. */
+function padSprite(pxPerUnit: number, dir: readonly [number, number], paint: (g: CanvasRenderingContext2D, pxPerUnit: number) => void): Sprite {
+  return new Sprite(LAUNCH_PAD_SPRITE_R, pxPerUnit, (g, k) => {
+    g.rotate(Math.atan2(dir[1], dir[0]));
+    paint(g, k);
+  });
 }
 
 /** An armed (or arming) mine: its glow, its spiky body at each angle, and its core, drawn with separate opacities. */

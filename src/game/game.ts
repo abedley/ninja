@@ -197,6 +197,11 @@ export class Game {
     const label = this.timed ? `+${GOLD_TIME_BONUS / TICK_RATE}` : undefined;
     for (const g of this.sim.goldThisTick) this.sparkles.push({ x: g.x, y: g.y, age: 0, kind: 'gold', label });
     if (key && keyWasThere && !key.active) this.sparkles.push({ x: key.x, y: key.y, age: 0, kind: 'key' });
+    for (const pad of this.sim.launchesThisTick) {
+      // (A pad can fire on a few frames in a row: one burst is enough.)
+      if (this.sparkles.some((s) => s.kind === 'launch' && s.x === pad.x && s.y === pad.y && s.age < 8)) continue;
+      this.sparkles.push({ x: pad.x, y: pad.y, age: 0, kind: 'launch', dir: [pad.normalX, pad.normalY] });
+    }
 
     if (this.phase === Phase.Playing && this.sim.won) {
       this.phase = Phase.Won;
@@ -317,6 +322,7 @@ export class Game {
       cam,
       this.sim.gold,
       this.sim.mines,
+      this.sim.launchPads,
       { door: this.sim.door, key: this.sim.key },
       this.sparkles,
       alive ? { x, y, tilt: this.animator.tilt, facing: this.animator.facing, pose, scarf: this.scarf } : null,

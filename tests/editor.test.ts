@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { blankLevel, check, exportText, importText, rectCells, resize, setCell, setCells, setQuarters, size } from '../src/editor/levelEdit';
+import { blankLevel, check, exportText, importText, rectCells, resize, setCell, setCells, setLaunchPads, setQuarters, size } from '../src/editor/levelEdit';
 import { parseLevel, type LevelDef } from '../src/level/level';
 import testLevels from './fixtures/levels.json';
 
@@ -72,6 +72,42 @@ describe('level editor operations', () => {
     expect(gold.mines).toEqual([[11, 5], [9, 7], [11, 7]]);
     expect(parseLevel(gold).gold.map((g) => [g.x, g.y])).toEqual([[54, 30], [78, 54]]);
     expect(setCell(gold, 1, 0, '.').gold).toEqual([[13, 9]]);
+  });
+
+  it('places launch pads on points of the entity grid, one per point', () => {
+    const level = tiny(['N...', '....', '####']);
+    // A pad facing up on top of the floor (its top edge is 6 px unit 12), and one facing left in mid-air.
+    const one = setLaunchPads(level, [[10, 12]], 6);
+    expect(one.launchPads).toEqual([[10, 12, 6]]);
+    expect(level.launchPads).toBeUndefined();
+    const two = setLaunchPads(one, [[13, 7]], 4);
+    expect(two.launchPads).toEqual([[13, 7, 4], [10, 12, 6]]);
+    // Placing on a taken point turns the pad there; the same pad again changes nothing.
+    expect(setLaunchPads(two, [[10, 12]], 7).launchPads).toEqual([[13, 7, 4], [10, 12, 7]]);
+    expect(setLaunchPads(two, [[10, 12]], 6)).toBe(two);
+    // Points on the border's inner edge are fine; further out, nothing happens.
+    expect(setLaunchPads(level, [[4, 4]], 0).launchPads).toEqual([[4, 4, 0]]);
+    expect(setLaunchPads(level, [[3, 8]], 0)).toBe(level);
+    expect(setLaunchPads(level, [[21, 8]], 0)).toBe(level);
+    // Removing.
+    expect(setLaunchPads(two, [[13, 7], [10, 12]], null).launchPads).toBeUndefined();
+    // Exported with each pad on one line, and read back the same.
+    const text = exportText(two);
+    expect(text).toContain('"launchPads": [\n    [13, 7, 4],\n    [10, 12, 6]\n  ]');
+    expect(importText(text)).toEqual(two);
+    expect(parseLevel(two).launchPads).toEqual([
+      { x: 78, y: 42, orientation: 4 },
+      { x: 60, y: 72, orientation: 6 },
+    ]);
+  });
+
+  it('moves launch pads with the grid, and erases them with their tile', () => {
+    const level = setLaunchPads(tiny(['N...', '....', '####']), [[10, 12], [13, 7]], 6);
+    expect(resize(level, 'left', 1).launchPads).toEqual([[17, 7, 6], [14, 12, 6]]);
+    expect(resize(level, 'top', 2).launchPads).toEqual([[13, 15, 6], [10, 20, 6]]);
+    // The mid-air pad (13, 7) is in the tile at column 2, row 0.
+    expect(setCell(level, 2, 0, '.').launchPads).toEqual([[10, 12, 6]]);
+    expect(resize(level, 'right', -2).launchPads).toEqual([[10, 12, 6]]);
   });
 
   it('fills rectangles', () => {

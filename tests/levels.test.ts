@@ -172,3 +172,54 @@ describe('greased blocks (G)', () => {
     expect(log[log.length - 1].x).toBeLessThan(log[slide].x - 20);
   });
 });
+
+describe('launch pads', () => {
+  const room = ['..........', '..........', '..........', '..........', 'N.........'];
+  /** Run with the auto-runner (no jumps) through the room with the given pads. */
+  function play(launchPads: [number, number, number][], frames: number) {
+    const level = parseLevel({ name: 'pads', rows: room, launchPads });
+    const sim = new Simulator(level.map, level.spawnX, level.spawnY, level);
+    const runner = new AutoRunner(sim.ninja, level.facing);
+    const log: { x: number; y: number; dir: number }[] = [];
+    let launches = 0;
+    for (let f = 0; f < frames; f++) {
+      sim.tick(...runner.control(sim.ninja, false));
+      runner.update(sim.ninja);
+      launches += sim.launchesThisTick.length;
+      log.push({ x: sim.ninja.xpos, y: sim.ninja.ypos, dir: runner.dir });
+    }
+    return { sim, log, launches };
+  }
+
+  it('are placed in 6 px units, facing one of 8 ways', () => {
+    const level = parseLevel({ name: 'pads', rows: room, launchPads: [[12, 24, 6], [20, 10, 1]] });
+    expect(level.launchPads).toEqual([
+      { x: 72, y: 144, orientation: 6 },
+      { x: 120, y: 60, orientation: 1 },
+    ]);
+    expect(() => parseLevel({ name: 'pads', rows: room, launchPads: [[12, 24, 8]] })).toThrow(/direction/);
+  });
+
+  // The floor of the room is at 6 px y = 24; the spawn at x = 6.
+  it('throw the ninja up from a floor', () => {
+    const { log, launches } = play([[14, 24, 6]], 70);
+    expect(launches).toBe(1);
+    expect(Math.min(...log.map((e) => e.y))).toBeLessThan(144 - 60);
+  });
+
+  it('work from below when floating in mid-air', () => {
+    // An up pad 14 px above the ninja's centre as it runs: it touches it from underneath.
+    const { launches, log } = play([[14, 20, 6]], 70);
+    // (Passing up through it, it can throw on two frames in a row, as in N++.)
+    expect(launches).toBeGreaterThan(0);
+    expect(Math.min(...log.map((e) => e.y))).toBeLessThan(144 - 60);
+  });
+
+  it('set the auto-runner running the way they throw', () => {
+    const { log, launches } = play([[14, 24, 4]], 60);
+    expect(launches).toBeGreaterThan(0);
+    const thrown = log.findIndex((e) => e.dir === -1);
+    expect(thrown).toBeGreaterThan(0);
+    expect(log[thrown + 20].x).toBeLessThan(log[thrown].x - 30);
+  });
+});

@@ -1,5 +1,5 @@
 import { TILE_SIZE } from '../physics/tileDefs';
-import type { Point } from '../physics/simulator';
+import type { LaunchPadPlacement, Point } from '../physics/simulator';
 import { TileMap } from '../physics/tileMap';
 
 /**
@@ -54,6 +54,12 @@ export interface LevelDef {
   toggleMines?: [number, number][];
   /** The exit door and its key, in the same units (instead of D and K in the rows). */
   exit?: { door: [number, number]; key: [number, number] };
+  /**
+   * Launch pads, as [x, y, direction] in the same units. The direction is one
+   * of N++'s 8: 0 right, 1 down-right, 2 down, 3 down-left, 4 left, 5 up-left,
+   * 6 up, 7 up-right.
+   */
+  launchPads?: [number, number, number][];
   /** Seconds on the clock at the start (each gold adds two). Untimed if absent. */
   time?: number;
 }
@@ -72,6 +78,7 @@ export interface Level {
   gold: Point[];
   mines: Point[];
   toggleMines: Point[];
+  launchPads: LaunchPadPlacement[];
   exit?: { door: Point; key: Point };
   /** Seconds on the clock at the start, if the level is timed. */
   time?: number;
@@ -134,6 +141,13 @@ export function parseLevel(def: LevelDef): Level {
     extra(door, [def.exit.door]);
     extra(key, [def.exit.key]);
   }
+  const launchPads: LaunchPadPlacement[] = [];
+  for (const [px, py, orientation] of def.launchPads ?? []) {
+    if (!(Number.isInteger(orientation) && orientation >= 0 && orientation < 8)) {
+      throw new Error(`Level "${def.name}" has a launch pad with direction ${orientation} (it must be 0-7)`);
+    }
+    launchPads.push({ x: px * ENTITY_GRID, y: py * ENTITY_GRID, orientation });
+  }
   if (door.length > 1 || key.length > 1) throw new Error(`Level "${def.name}" has more than one exit door or key`);
   if (door.length !== key.length) throw new Error(`Level "${def.name}" needs both an exit door ("${DOOR_CHAR}") and a key ("${KEY_CHAR}")`);
 
@@ -147,6 +161,7 @@ export function parseLevel(def: LevelDef): Level {
     gold,
     mines,
     toggleMines,
+    launchPads,
     exit: door.length ? { door: door[0], key: key[0] } : undefined,
     time: def.time,
   };

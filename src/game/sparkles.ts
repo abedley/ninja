@@ -1,12 +1,14 @@
 /** Frames a sparkle lasts. */
 export const SPARKLE_FRAMES = 24;
 
-/** A cosmetic burst: where gold or the key was collected, a mine went off, or the exit was reached. */
+/** A cosmetic burst: where gold or the key was collected, a mine went off, a launch pad fired, or the exit was reached. */
 export interface Sparkle {
   x: number;
   y: number;
   age: number;
-  kind: 'gold' | 'blast' | 'key' | 'exit';
+  kind: 'gold' | 'blast' | 'key' | 'exit' | 'launch';
+  /** For a launch: the way the pad threw (a unit vector). */
+  dir?: readonly [number, number];
   /** Text that floats up from the burst (the time a gold piece added). */
   label?: string;
 }

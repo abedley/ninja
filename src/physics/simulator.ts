@@ -1,5 +1,6 @@
 import { ExitDoor, ExitKey } from './exit';
 import { GOLD_RADIUS, Gold, overlapCircleVsCircle } from './gold';
+import { LaunchPad } from './launchPad';
 import { Mine } from './mine';
 import { NINJA, Ninja, NinjaState, type HorInput } from './ninja';
 import { TILE_SIZE } from './tileDefs';
@@ -23,9 +24,15 @@ export interface Entities {
   toggleMines?: readonly Point[];
   /** The exit door and the key (N++'s exit switch) that opens it. */
   exit?: { door: Point; key: Point };
+  /** Launch pads, each facing one of N++'s 8 orientations (0 right, then clockwise). */
+  launchPads?: readonly LaunchPadPlacement[];
 }
 
-type Touchable = Gold | Mine | ExitKey | ExitDoor;
+export interface LaunchPadPlacement extends Point {
+  orientation: number;
+}
+
+type Touchable = Gold | Mine | LaunchPad | ExitKey | ExitDoor;
 
 export class Simulator {
   readonly map: TileMap;
@@ -39,6 +46,9 @@ export class Simulator {
   readonly mines: Mine[];
   /** The mine that killed the ninja, if one did. */
   killedBy: Mine | null = null;
+  readonly launchPads: LaunchPad[];
+  /** Launch pads that threw the ninja during the most recent tick. */
+  readonly launchesThisTick: LaunchPad[] = [];
   readonly door: ExitDoor | null;
   readonly key: ExitKey | null;
   /** True once the ninja has reached the open door. */
@@ -52,6 +62,8 @@ export class Simulator {
   timedOut = false;
   /** Entities the ninja can touch, in the order N++ checks them (see touchOrder()). */
   private readonly touchables: Touchable[];
+  /** Each touchable's grid cell, as [x, y]. */
+  private readonly cells: [number, number][];
 
   constructor(map: TileMap, spawnX: number, spawnY: number, entities: Entities = {}) {
     this.map = map;
@@ -61,16 +73,25 @@ export class Simulator {
       ...(entities.mines ?? []).map((m) => new Mine(m.x, m.y, false)),
       ...(entities.toggleMines ?? []).map((m) => new Mine(m.x, m.y, true)),
     ];
+    this.launchPads = (entities.launchPads ?? []).map((p) => new LaunchPad(p.x, p.y, p.orientation));
     const exit = entities.exit;
     this.door = exit ? new ExitDoor(exit.door.x, exit.door.y) : null;
     this.key = exit ? new ExitKey(exit.key.x, exit.key.y) : null;
-    this.touchables = touchOrder([...this.gold, ...this.mines, ...(this.key ? [this.key] : []), ...(this.door ? [this.door] : [])]);
+    this.touchables = touchOrder([
+      ...this.gold,
+      ...this.mines,
+      ...this.launchPads,
+      ...(this.key ? [this.key] : []),
+      ...(this.door ? [this.door] : []),
+    ]);
+    this.cells = this.touchables.map((e) => cellOf(e.x, e.y));
   }
 
   /** Advance the simulation by exactly one frame. */
   tick(horInput: HorInput, jumpInput: boolean): void {
     this.frame++;
     this.goldThisTick.length = 0;
+    this.launchesThisTick.length = 0;
     const ninja = this.ninja;
     ninja.horInput = horInput;
     ninja.jumpInput = jumpInput;
@@ -96,7 +117,12 @@ export class Simulator {
     // N++ gathers the entities to test before testing them, so a door opened
     // by the key this frame can't be entered until the next one.
     const doorOpen = this.door?.open ?? false;
-    for (const e of this.touchables) {
+    // Only entities in the 3x3 cells around the ninja, found before any are tested (a launch pad can move it).
+    const [cx, cy] = cellOf(n.xpos, n.ypos);
+    for (let i = 0; i < this.touchables.length; i++) {
+      const e = this.touchables[i];
+      const [ex, ey] = this.cells[i];
+      if (Math.abs(ex - cx) > 1 || Math.abs(ey - cy) > 1) continue;
       if (e instanceof Gold) {
         if (e.active && n.state !== NinjaState.Celebrating && overlapCircleVsCircle(e.x, e.y, GOLD_RADIUS, n.xpos, n.ypos, NINJA.RADIUS)) {
           e.active = false;
@@ -106,6 +132,8 @@ export class Simulator {
         }
       } else if (e instanceof Mine) {
         if (e.logicalCollision(n)) this.killedBy ??= e;
+      } else if (e instanceof LaunchPad) {
+        if (e.logicalCollision(n)) this.launchesThisTick.push(e);
       } else if (e instanceof ExitKey) {
         if (e.active && e.logicalCollision(n)) this.door!.open = true;
       } else if (doorOpen && e.logicalCollision(n)) {
@@ -128,12 +156,18 @@ export class Simulator {
 }
 
 /**
+ * An entity grid cell (a tile). (N++ also clamps cells to its 44x25 grid,
+ * which changes nothing inside a level that size; levels here can be bigger.)
+ */
+function cellOf(x: number, y: number): [number, number] {
+  return [Math.floor(x / TILE_SIZE), Math.floor(y / TILE_SIZE)];
+}
+
+/**
  * N++ tests the entities in the 3x3 grid cells around the ninja, cell by cell
  * (column by column, top to bottom within a column), each cell's entities in
  * the order they were added. The exit door is added to its cell when it opens,
- * so it comes after everything else there. Anything close enough to touch is
- * in those cells (the largest reach, door + ninja, is 22 px < one cell), so
- * testing every entity in this order gives the same results.
+ * so it comes after everything else there.
  *
  * Only some orders matter: entering the door stops gold being collected and
  * mines killing (and the reverse) for the rest of that frame.
