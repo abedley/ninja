@@ -1,6 +1,6 @@
 import { EXIT_DOOR_RADIUS, EXIT_KEY_RADIUS, type ExitDoor, type ExitKey } from '../physics/exit';
 import { CircularSegment, LinearSegment } from '../physics/geometry';
-import { GOLD_RADIUS, type Gold } from '../physics/gold';
+import { GOLD_RADIUS, GoldState, type Gold } from '../physics/gold';
 import { LAUNCH_PAD_DIRECTIONS, LAUNCH_PAD_RADIUS, type LaunchPad } from '../physics/launchPad';
 import { MineState, type Mine } from '../physics/mine';
 import { GREASED_TILE, TILE_SIZE } from '../physics/tileDefs';
@@ -474,14 +474,30 @@ export class Renderer {
     }
   }
 
-  /** Gold: glowing neon squares that shimmer, each a little out of step. */
+  /**
+   * Gold: glowing neon squares that shimmer, each a little out of step.
+   * Dormant toggle gold is a faint dashed outline; waking, a dim glow.
+   */
   private drawGold(ctx: CanvasRenderingContext2D, gold: readonly Gold[], debug: boolean, now: number): void {
     const sprite = this.sprites!.gold;
     for (const g of gold) {
-      if (!g.active || !this.onScreen(g.x, g.y, sprite.r)) continue;
-      ctx.globalAlpha = 0.8 + 0.2 * Math.sin(now / 350 + g.x * 0.13 + g.y * 0.07);
+      if (!g.active || g.state === GoldState.Dormant || !this.onScreen(g.x, g.y, sprite.r)) continue;
+      const shimmer = 0.8 + 0.2 * Math.sin(now / 350 + g.x * 0.13 + g.y * 0.07);
+      ctx.globalAlpha = g.state === GoldState.Waking ? 0.4 : shimmer;
       sprite.stamp(ctx, g.x, g.y);
     }
+    ctx.globalAlpha = 1;
+    // Dormant toggle gold, all in one path.
+    ctx.beginPath();
+    for (const g of gold) {
+      if (g.active && g.state === GoldState.Dormant && this.onScreen(g.x, g.y, 6)) ctx.rect(g.x - 4.5, g.y - 4.5, 9, 9);
+    }
+    ctx.strokeStyle = COLORS.gold;
+    ctx.globalAlpha = 0.5;
+    ctx.lineWidth = 0.9;
+    ctx.setLineDash([2, 1.5]);
+    ctx.stroke();
+    ctx.setLineDash([]);
     ctx.globalAlpha = 1;
     if (debug) {
       ctx.strokeStyle = COLORS.debug;

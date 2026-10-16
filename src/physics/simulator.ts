@@ -1,8 +1,8 @@
 import { ExitDoor, ExitKey } from './exit';
-import { GOLD_RADIUS, Gold, overlapCircleVsCircle } from './gold';
+import { Gold, GoldState } from './gold';
 import { LaunchPad } from './launchPad';
 import { Mine } from './mine';
-import { NINJA, Ninja, NinjaState, type HorInput } from './ninja';
+import { Ninja, NinjaState, type HorInput } from './ninja';
 import { TILE_SIZE } from './tileDefs';
 import { TileMap } from './tileMap';
 
@@ -22,6 +22,8 @@ export interface Entities {
   mines?: readonly Point[];
   /** Toggle mines: safe until touched, armed once the ninja moves off them. */
   toggleMines?: readonly Point[];
+  /** Toggle gold: can't be collected until touched once and moved off (see GoldState). */
+  toggleGold?: readonly Point[];
   /** The exit door and the key (N++'s exit switch) that opens it. */
   exit?: { door: Point; key: Point };
   /** Launch pads, each facing one of N++'s 8 orientations (0 right, then clockwise). */
@@ -38,6 +40,7 @@ export class Simulator {
   readonly map: TileMap;
   ninja: Ninja;
   frame = 0;
+  /** Regular gold, then toggle gold. */
   readonly gold: Gold[];
   goldCollected = 0;
   /** Gold picked up during the most recent tick. */
@@ -68,7 +71,7 @@ export class Simulator {
   constructor(map: TileMap, spawnX: number, spawnY: number, entities: Entities = {}) {
     this.map = map;
     this.ninja = new Ninja(map, spawnX, spawnY);
-    this.gold = (entities.gold ?? []).map((g) => new Gold(g.x, g.y));
+    this.gold = [...(entities.gold ?? []).map((g) => new Gold(g.x, g.y)), ...(entities.toggleGold ?? []).map((g) => new Gold(g.x, g.y, true))];
     this.mines = [
       ...(entities.mines ?? []).map((m) => new Mine(m.x, m.y, false)),
       ...(entities.toggleMines ?? []).map((m) => new Mine(m.x, m.y, true)),
@@ -98,6 +101,7 @@ export class Simulator {
 
     // Entities think first, using the ninja's position from the previous frame.
     for (const m of this.mines) m.think(ninja);
+    for (const g of this.gold) if (g.toggle) g.think(ninja);
 
     if (ninja.state === NinjaState.Disabled || ninja.state === NinjaState.Dead) return;
 
@@ -124,7 +128,7 @@ export class Simulator {
       const [ex, ey] = this.cells[i];
       if (Math.abs(ex - cx) > 1 || Math.abs(ey - cy) > 1) continue;
       if (e instanceof Gold) {
-        if (e.active && n.state !== NinjaState.Celebrating && overlapCircleVsCircle(e.x, e.y, GOLD_RADIUS, n.xpos, n.ypos, NINJA.RADIUS)) {
+        if (e.active && e.state === GoldState.Ready && n.state !== NinjaState.Celebrating && e.touches(n)) {
           e.active = false;
           this.goldCollected++;
           this.goldThisTick.push(e);

@@ -137,6 +137,7 @@ multiples of 4.
 "gold": [[18, 14], [34, 26]],
 "mines": [[40, 92]],
 "toggleMines": [[52, 92]],
+"toggleGold": [[30, 60]],
 "launchPads": [[24, 120, 6]]
 ```
 
@@ -165,6 +166,11 @@ Entities work as in N++ (all but launch pads leave movement alone):
 - **Toggle mines** start safe (radius 3.5). Touching one starts arming it
   (radius 4.5), and it becomes a live mine once the ninja moves off it, so
   coming back the same way is deadly.
+- **Toggle gold** isn't in N++: it's a toggle mine that's good for you. It
+  starts dormant (a faint dashed square) and can't be collected. Touching it
+  wakes it, and once the ninja moves off it, it's ordinary gold, collected
+  the next time through. (If the ninja dies on it, it goes back to dormant.)
+  It counts towards the level's gold, at 2 s like any other.
 - **The key** (N++'s exit switch, radius 6) opens **the exit door** (radius
   12). The door can be entered from the frame after the key is collected;
   touching it completes the level and the ninja celebrates, no longer
@@ -190,7 +196,7 @@ The game's site has a level editor at `/editor/` (for example
 `https://<user>.github.io/<repo>/editor/`, or `http://localhost:5173/editor/`
 with `npm run dev`). Paint terrain on the grid: drag to paint, right-click to
 erase, and Shift-drag to fill a rectangle. Objects (the ninja's start, facing
-either way, gold, mines, toggle mines, the key and door, and launch pads
+either way, gold, toggle gold, mines, toggle mines, the key and door, and launch pads
 pointing any of 8 ways) go on any point of the 6 px entity grid: on a tile's
 edge (a floor, wall or ceiling), in its middle, or anywhere between. A faint
 copy shows where the next one will go. A point holds one object, so placing
@@ -202,12 +208,16 @@ terrain leaves objects where they are. Ctrl+Z undoes.
 The mild and steep slopes take two tiles per ramp; the first four buttons in
 each of those groups place a whole ramp (both tiles) in one click, by its
 top-left tile. Dragging or Shift-dragging with one repeats it edge to edge.
-To copy terrain, pick **Select**, drag a rectangle, then **Copy** (Ctrl+C),
-**Cut** (Ctrl+X) or **Clear** (Delete). **Paste** (Ctrl+V) shows the copy
-under the pointer; click to place it by its top-left corner (it replaces
-everything under it, empty tiles too), and Esc to stop. **Flip ↔** and
-**Flip ↕** mirror the copy, tiles and all, so a slope copied from one side
-of a cloud fits the other. Copying is terrain only, and the copy stays while
+To copy part of a level, pick **Select**, drag a rectangle, then **Copy**
+(Ctrl+C), **Cut** (Ctrl+X) or **Clear** (Delete). The copy holds the terrain
+and the objects in the rectangle, including those on its edges (a mine on a
+floor at the bottom, say). **Paste** (Ctrl+V) shows the copy under the
+pointer; click to place it by its top-left corner, and Esc to stop. A paste
+replaces everything under it, empty tiles and objects too, except the
+level's start, key and door: there's only one of each, so they stay unless
+the copy has its own, which moves them. **Flip ↔** and **Flip ↕** mirror the
+copy: tiles, objects, launch pad directions and the way the start faces, so
+a piece copied from one side of a cloud fits the other. The copy stays while
 you load other levels, so you can move pieces between them. You
 can resize the level at any edge, set a time limit, and load any level in the
 game to start from. **Playtest** opens the level in the game, with a pencil

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { blankLevel, check, copyRect, exportLevels, exportText, fillStamp, flipStamp, importText, placeObject, placeStamp, rectCells, removeObjects, resize, setCell, setCells, size, stampCorner } from '../src/editor/levelEdit';
+import { blankLevel, check, clearRect, copyClip, copyRect, flipClip, pasteClip, exportLevels, exportText, fillStamp, flipStamp, importText, placeObject, placeStamp, rectCells, removeObjects, resize, setCell, setCells, size, stampCorner } from '../src/editor/levelEdit';
 import { TILE_POLYS } from '../src/game/tileShapes';
 import { parseLevel, TILE_LEGEND, type Coord, type LevelDef } from '../src/level/level';
 import testLevels from './fixtures/levels.json';
@@ -79,6 +79,48 @@ describe('level editor operations', () => {
       expect(shape(TILE_LEGEND.indexOf(flipStamp([ch], 'horizontal')[0][0])), ch).toBe(shape(id, (x, y) => [24 - x, y]));
       expect(shape(TILE_LEGEND.indexOf(flipStamp([ch], 'vertical')[0][0])), ch).toBe(shape(id, (x, y) => [x, 24 - y]));
     }
+  });
+
+  it('copies, clears and pastes rectangles with the objects in them', () => {
+    // Tiles are 4 units across from 4 (the border's inner edge): column 1 spans 8-12, row 1 spans 8-12.
+    const def = tiny(['....', '.#..', '....'], {
+      gold: [[10, 6], [18, 10]],
+      toggleGold: [[12, 8]],
+      mines: [[10, 12]],
+      launchPads: [[9, 14, 7]],
+      key: [11, 11],
+    });
+    // Columns 1-2, rows 1-2: objects on the rectangle's edges count.
+    const clip = copyClip(def, 2, 2, 1, 1);
+    expect(clip.rows).toEqual(['#.', '..']);
+    expect(clip.objects).toEqual({ key: [7, 7], toggleGold: [[8, 4]], mines: [[6, 8]], launchPads: [[5, 10, 7]] });
+    // Clearing takes the terrain and the objects.
+    const cleared = clearRect(def, 1, 1, 2, 2);
+    expect(cleared.rows).toEqual(['....', '....', '....']);
+    expect([cleared.gold, cleared.toggleGold, cleared.mines, cleared.launchPads, cleared.key]).toEqual([def.gold, undefined, undefined, undefined, undefined]);
+    // Pasting at the top-left: the objects come along, and there's still one key.
+    const pasted = pasteClip(def, 0, 0, clip);
+    expect(pasted.rows).toEqual(['#...', '....', '....']);
+    expect(pasted.key).toEqual([7, 7]);
+    // The start was under the paste, but there's only one: it stays.
+    expect(pasted.spawn).toEqual([6, 6]);
+    expect(pasted.launchPads).toEqual([[9, 14, 7], [5, 10, 7]]);
+    // What's under a paste goes, objects too (the gold at 10, 6; the toggle gold and mine are replaced by the copies).
+    expect([pasted.gold, pasted.toggleGold, pasted.mines]).toEqual([[[18, 10]], [[8, 4]], [[6, 8]]]);
+    // Pasting the same again changes nothing.
+    expect(pasteClip(pasted, 0, 0, clip)).toBe(pasted);
+    // Off the level's edge, the rest is left out.
+    expect(pasteClip(def, 3, 2, clip).rows).toEqual(['....', '.#..', '...#']);
+  });
+
+  it('flips copied objects with the terrain, turning launch pads and the start', () => {
+    const clip = { rows: ['#.', '..'], objects: { spawn: [6, 7] as Coord, gold: [[11, 5]] as Coord[], launchPads: [[5, 10, 7], [8, 4, 2]] as [number, number, number][] } };
+    const h = flipClip(clip, 'horizontal');
+    // The clip spans 4 to 12 across: x becomes 16 - x.
+    expect(h).toEqual({ rows: ['.#', '..'], objects: { spawn: [10, 7], facing: 'left', gold: [[5, 5]], launchPads: [[11, 10, 5], [8, 4, 2]] } });
+    expect(flipClip(h, 'horizontal')).toEqual(clip);
+    const v = flipClip(clip, 'vertical');
+    expect(v.objects).toEqual({ spawn: [6, 9], gold: [[11, 11]], launchPads: [[5, 6, 1], [8, 12, 6]] });
   });
 
   it('places objects on any point of the 6 px grid, one per point', () => {

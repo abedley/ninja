@@ -9,28 +9,34 @@ import { LAUNCH_PAD_DIRECTIONS } from '../physics/launchPad';
 import {
   blankLevel,
   check,
-  copyRect,
+  clearRect,
+  copyClip,
   exportText,
   fillStamp,
-  flipStamp,
+  flipClip,
   importText,
   insideLevel,
   placeObject,
+  objectPlacements,
+  pasteClip,
   placeStamp,
   rectCells,
   removeObjects,
   resize,
   size,
   stampCorner,
+  shiftObjects,
   stampWidth,
+  type Clip,
   type Edge,
+  type Objects,
   type Placement,
   type Stamp,
 } from './levelEdit';
 
 /**
  * The level editor (served at /editor/). Paint terrain tiles on the grid and
- * place objects anywhere on N++'s 6 px entity grid (rectangles of terrain can
+ * place objects anywhere on N++'s 6 px entity grid (rectangles can
  * be copied and pasted, flipped if need be), then copy the exported
  * text into src/level/levels.json. The draft is kept in this browser's
  * storage, and Playtest opens it in the game.
@@ -62,6 +68,8 @@ interface Tool {
   stamp?: Stamp;
   /** The select tool: drag out a rectangle of terrain to copy, cut or clear. */
   select?: true;
+  /** The paste tool: what it places (terrain and objects); its stamp is the terrain, for the preview. */
+  clip?: Clip;
   /** A fixed palette button id (the paste tool's stamp changes). */
   id?: string;
   /** For an object tool: what it places on a point of the 6 px grid (null: it removes objects instead). */
@@ -78,9 +86,15 @@ const toolId = (t: Tool) =>
 const tile = (ch: string, label: string): Tool => ({ stamp: [ch], label, icon: ch });
 /** A whole two-tile ramp, in one go. */
 const ramp = (stamp: Stamp, label: string): Tool => ({ stamp, label, icon: '' });
-const SELECT_TOOL: Tool = { select: true, id: 'select', label: 'Select terrain (drag a rectangle), then copy, cut or clear it', icon: 'select' };
+const SELECT_TOOL: Tool = { select: true, id: 'select', label: 'Select (drag a rectangle), then copy, cut or clear its terrain and objects', icon: 'select' };
 /** The paste tool places what was copied; it's made when there's something to paste. */
-const pasteTool = (stamp: Stamp): Tool => ({ stamp, id: 'paste', label: `Paste ${stampWidth(stamp)} × ${stamp.length} (click to place; Esc to stop)`, icon: '' });
+const pasteTool = (clip: Clip): Tool => ({ stamp: clip.rows, clip, id: 'paste', label: `Paste ${clipSize(clip)} (click to place; Esc to stop)`, icon: '' });
+const NOTHING_COPIED: Clip = { rows: [], objects: {} };
+/** A clip's size, and how many objects it holds. */
+function clipSize(clip: Clip): string {
+  const n = objectPlacements(clip.objects).length;
+  return `${stampWidth(clip.rows)} × ${clip.rows.length}${n ? ` with ${n} object${n === 1 ? '' : 's'}` : ''}`;
+}
 const object = (icon: string, label: string, what: Placement): Tool => ({ object: what, label, icon });
 
 /** N++'s launch pad orientations, clockwise from up. */
@@ -104,6 +118,7 @@ const TOOL_GROUPS: { title: string; tools: Tool[] }[] = [
       object('$', 'Gold (+2 s)', { kind: 'gold' }),
       object('*', 'Mine', { kind: 'mines' }),
       object('%', 'Toggle mine (safe until touched)', { kind: 'toggleMines' }),
+      object('&', 'Toggle gold (collected on the second pass: touch it, move off, come back)', { kind: 'toggleGold' }),
       object('K', 'Key (opens the door)', { kind: 'key' }),
       object('D', 'Exit door', { kind: 'door' }),
       { object: null, label: 'Remove objects (drag over them)', icon: 'erase-objects' },
@@ -115,7 +130,7 @@ const TOOL_GROUPS: { title: string; tools: Tool[] }[] = [
   },
   {
     title: 'Copy and paste',
-    tools: [SELECT_TOOL, { ...pasteTool([]), icon: 'paste', label: 'Paste (copy something first)' }],
+    tools: [SELECT_TOOL, { ...pasteTool(NOTHING_COPIED), icon: 'paste', label: 'Paste (copy something first)' }],
   },
   {
     title: 'Blocks',
@@ -216,7 +231,7 @@ let hover: [number, number] | null = null;
 let stroke: { tool: Tool; erase: boolean; origin: [number, number]; last: [number, number]; rectFrom: [number, number] | null; before: LevelDef } | null = null;
 /** The select tool's rectangle (two corners, in tiles), and what was last copied. */
 let selection: { from: [number, number]; to: [number, number] } | null = null;
-let clipboard: Stamp = [];
+let clipboard: Clip = NOTHING_COPIED;
 
 // ---------------------------------------------------------------- state
 
@@ -394,7 +409,7 @@ window.addEventListener('keydown', (e) => {
   // Copying with nothing selected leaves the browser's own copy alone.
   else if (k === 'c' && selection) copySelection();
   else if (k === 'x' && selection) cutSelection();
-  else if (k === 'v' && clipboard.length) selectTool(pasteTool(clipboard));
+  else if (k === 'v' && clipboard.rows.length) selectTool(pasteTool(clipboard));
   else return;
   e.preventDefault();
 });
@@ -414,14 +429,14 @@ function setSelection(next: typeof selection): void {
 function copySelection(): void {
   const rect = selectionRect();
   if (!rect) return;
-  clipboard = copyRect(def, ...rect);
+  clipboard = copyClip(def, ...rect);
   syncClipboardButtons();
-  $('status-tool').textContent = `Copied ${stampWidth(clipboard)} × ${clipboard.length}: paste it with Ctrl+V or the Paste tool.`;
+  $('status-tool').textContent = `Copied ${clipSize(clipboard)}: paste it with Ctrl+V or the Paste tool.`;
 }
 
 function clearSelection(): void {
   const rect = selectionRect();
-  if (rect) commit(fillStamp(def, rectCells(...rect), [0, 0], ['.'], true));
+  if (rect) commit(clearRect(def, ...rect));
 }
 
 function cutSelection(): void {
@@ -431,19 +446,20 @@ function cutSelection(): void {
 
 /** Flip what's copied (the paste tool's preview shows it). */
 function flipClipboard(axis: 'horizontal' | 'vertical'): void {
-  if (!clipboard.length) return;
-  clipboard = flipStamp(clipboard, axis);
+  if (!clipboard.rows.length) return;
+  clipboard = flipClip(clipboard, axis);
   selectTool(pasteTool(clipboard));
 }
 
 /** The buttons that act on the selection and clipboard, and the paste tool's icon (what's copied). */
 function syncClipboardButtons(): void {
   for (const id of ['btn-copy-sel', 'btn-cut-sel', 'btn-clear-sel']) $<HTMLButtonElement>(id).disabled = !selection;
-  for (const id of ['btn-flip-h', 'btn-flip-v']) $<HTMLButtonElement>(id).disabled = !clipboard.length;
+  const copied = clipboard.rows.length > 0;
+  for (const id of ['btn-flip-h', 'btn-flip-v']) $<HTMLButtonElement>(id).disabled = !copied;
   const paste = document.querySelector<HTMLButtonElement>('.tool[data-tool="paste"]')!;
-  paste.disabled = !clipboard.length;
-  paste.title = clipboard.length ? `Paste the ${stampWidth(clipboard)} × ${clipboard.length} copied (Ctrl+V)` : 'Paste (copy something first)';
-  drawToolIcon(paste.querySelector('canvas')!, clipboard.length ? pasteTool(clipboard) : { ...pasteTool([]), icon: 'paste' });
+  paste.disabled = !copied;
+  paste.title = copied ? `Paste the ${clipSize(clipboard)} copied (Ctrl+V)` : 'Paste (copy something first)';
+  drawToolIcon(paste.querySelector('canvas')!, copied ? pasteTool(clipboard) : { ...pasteTool(NOTHING_COPIED), icon: 'paste' });
 }
 
 // ---------------------------------------------------------------- palette
@@ -488,9 +504,9 @@ function clipboardActions(): HTMLElement {
     b.addEventListener('click', action);
     row.append(b);
   };
-  button('btn-copy-sel', 'Copy', 'Copy the selected terrain (Ctrl+C)', copySelection);
-  button('btn-cut-sel', 'Cut', 'Copy the selected terrain and clear it (Ctrl+X)', cutSelection);
-  button('btn-clear-sel', 'Clear', 'Clear the selected terrain (Delete)', clearSelection);
+  button('btn-copy-sel', 'Copy', 'Copy the selected terrain and objects (Ctrl+C)', copySelection);
+  button('btn-cut-sel', 'Cut', 'Copy the selected terrain and objects, and clear them (Ctrl+X)', cutSelection);
+  button('btn-clear-sel', 'Clear', 'Clear the selected terrain and objects (Delete)', clearSelection);
   button('btn-flip-h', 'Flip ↔', 'Flip what’s copied left to right', () => flipClipboard('horizontal'));
   button('btn-flip-v', 'Flip ↕', 'Flip what’s copied upside down', () => flipClipboard('vertical'));
   return row;
@@ -632,6 +648,13 @@ function drawCell(g: CanvasRenderingContext2D, ch: string, x: number, y: number,
       g.restore();
       return;
     }
+    case '&':
+      // Toggle gold: a dashed outline, like a dormant one in the game.
+      g.strokeStyle = COLORS.gold;
+      g.setLineDash([s * 0.08, s * 0.05]);
+      g.strokeRect(cx - s * 0.19, cy - s * 0.19, s * 0.38, s * 0.38);
+      g.setLineDash([]);
+      return;
     case '$':
       g.fillStyle = 'rgba(255, 210, 63, 0.2)';
       g.fillRect(cx - s * 0.19, cy - s * 0.19, s * 0.38, s * 0.38);
@@ -691,7 +714,7 @@ function drawPad(g: CanvasRenderingContext2D, x: number, y: number, s: number, o
   const [dx, dy] = LAUNCH_PAD_DIRECTIONS[orientation];
   const k = s / TILE_SIZE;
   g.save();
-  g.globalAlpha = alpha;
+  g.globalAlpha *= alpha;
   g.translate(x, y);
   g.rotate(Math.atan2(dy, dx));
   g.scale(k, k);
@@ -863,6 +886,8 @@ function draw(): void {
           drawCell(ctx, ch, px, py, zoom, true, false);
         }),
       );
+      // A pasted rectangle's objects too.
+      if (active.clip) drawObjects(ctx, shiftObjects(active.clip.objects, cx, cy), zoom / 4);
       ctx.restore();
     }
     ctx.strokeStyle = stroke?.erase ? '#ff6a86' : COLORS.hover;
@@ -878,11 +903,11 @@ const ERASE_REACH = 1.5;
 function drawObject(g: CanvasRenderingContext2D, what: Placement, x: number, y: number, unit: number, alpha = 1): void {
   const tileSize = unit * 4;
   g.save();
-  g.globalAlpha = alpha;
+  g.globalAlpha *= alpha;
   if (what.kind === 'launchPads') {
     drawPad(g, x, y, tileSize, what.orientation ?? 6);
   } else {
-    const ch = { spawn: what.facing === 'left' ? '<' : 'N', gold: '$', mines: '*', toggleMines: '%', key: 'K', door: 'D' }[what.kind];
+    const ch = { spawn: what.facing === 'left' ? '<' : 'N', gold: '$', toggleGold: '&', mines: '*', toggleMines: '%', key: 'K', door: 'D' }[what.kind];
     // Mines are drawn a little smaller, so neighbours stay apart.
     const s = what.kind === 'mines' || what.kind === 'toggleMines' ? tileSize * 0.8 : tileSize;
     drawCell(g, ch, x - s / 2, y - s / 2, s);
@@ -891,12 +916,13 @@ function drawObject(g: CanvasRenderingContext2D, what: Placement, x: number, y: 
 }
 
 /** All of a level's objects. */
-function drawObjects(g: CanvasRenderingContext2D, d: LevelDef, unit: number): void {
+function drawObjects(g: CanvasRenderingContext2D, d: Objects, unit: number): void {
   const at = ([x, y]: Coord, what: Placement) => drawObject(g, what, x * unit, y * unit, unit);
   if (d.door) at(d.door, { kind: 'door' });
   if (d.key) at(d.key, { kind: 'key' });
   for (const p of d.gold ?? []) at(p, { kind: 'gold' });
   for (const p of d.mines ?? []) at(p, { kind: 'mines' });
+  for (const p of d.toggleGold ?? []) at(p, { kind: 'toggleGold' });
   for (const p of d.toggleMines ?? []) at(p, { kind: 'toggleMines' });
   for (const [x, y, orientation] of d.launchPads ?? []) at([x, y], { kind: 'launchPads', orientation });
   if (d.spawn) at(d.spawn, { kind: 'spawn', facing: d.facing });
@@ -931,7 +957,10 @@ function paint(d: LevelDef, t: Tool, erase: boolean, at: [number, number][], ori
   if (t.select) return d;
   if (t.object === undefined) {
     const corners = new Map(at.map((p) => stampCorner(t.stamp!, origin, p)).map((c) => [c.join(), c]));
-    for (const [x, y] of corners.values()) d = placeStamp(d, x, y, t.stamp!, erase);
+    for (const [x, y] of corners.values()) {
+      if (t.clip) d = erase ? clearRect(d, x, y, x + stampWidth(t.stamp!) - 1, y + t.stamp!.length - 1) : pasteClip(d, x, y, t.clip);
+      else d = placeStamp(d, x, y, t.stamp!, erase);
+    }
     return d;
   }
   if (erase || t.object === null) return removeObjects(d, at, ERASE_REACH);
@@ -970,7 +999,7 @@ canvas.addEventListener('pointerdown', (e) => {
     return;
   }
   // (Objects go one per click, without rectangles.)
-  stroke = { tool, erase: e.button === 2, origin: at, last: at, rectFrom: e.shiftKey && tool.object === undefined ? at : null, before: def };
+  stroke = { tool, erase: e.button === 2, origin: at, last: at, rectFrom: e.shiftKey && tool.object === undefined && !tool.clip ? at : null, before: def };
   if (!stroke.rectFrom) {
     def = paint(def, tool, stroke.erase, [at]);
     changed();

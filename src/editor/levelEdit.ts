@@ -114,11 +114,110 @@ export function flipStamp(stamp: Stamp, axis: 'horizontal' | 'vertical'): Stamp 
   return stamp.map((r) => [...r].reverse().map(flip).join(''));
 }
 
+/**
+ * A copied rectangle: its terrain, and the objects in it (on its edges too),
+ * placed as if its top-left tile were the level's.
+ */
+export interface Clip {
+  rows: Stamp;
+  objects: Objects;
+}
+
+/** Whether a point (entity units) is in a rectangle of tiles, its edges included. */
+function inTiles([x, y]: Coord, left: number, top: number, right: number, bottom: number): boolean {
+  const u = UNITS_PER_TILE;
+  return x >= u * (left + 1) && x <= u * (right + 2) && y >= u * (top + 1) && y <= u * (bottom + 2);
+}
+
+/** The fields of an object that are set. */
+function pick<T extends object, K extends keyof T>(o: T, keys: readonly K[]): Pick<T, K> {
+  const out = {} as Pick<T, K>;
+  for (const k of keys) if (o[k] !== undefined) out[k] = o[k];
+  return out;
+}
+
+/** Just the objects of a level. */
+function objectsOf(def: Objects): Objects {
+  return pick(def, ['facing', ...SINGLE, ...LISTS]);
+}
+
+/** The rectangle between two corners (inclusive), clipped to the level, as [left, top, right, bottom]. */
+function clipRect(def: LevelDef, x0: number, y0: number, x1: number, y1: number): [number, number, number, number] | null {
+  const { width, height } = size(def);
+  const r: [number, number, number, number] = [Math.max(0, Math.min(x0, x1)), Math.max(0, Math.min(y0, y1)), Math.min(width - 1, Math.max(x0, x1)), Math.min(height - 1, Math.max(y0, y1))];
+  return r[0] > r[2] || r[1] > r[3] ? null : r;
+}
+
+/** Copy the terrain and objects in a rectangle between two corners (inclusive). */
+export function copyClip(def: LevelDef, x0: number, y0: number, x1: number, y1: number): Clip {
+  const r = clipRect(def, x0, y0, x1, y1);
+  if (!r) return { rows: [], objects: {} };
+  const inside = withoutObjects(objectsOf(def), (p) => !inTiles(p, ...r));
+  if (!inside.spawn) delete inside.facing;
+  return { rows: copyRect(def, x0, y0, x1, y1), objects: shiftObjects(inside, -r[0], -r[1]) };
+}
+
+/** Clear a rectangle between two corners (inclusive): its terrain and its objects. */
+export function clearRect(def: LevelDef, x0: number, y0: number, x1: number, y1: number): LevelDef {
+  const r = clipRect(def, x0, y0, x1, y1);
+  if (!r) return def;
+  const out = withoutObjects(fillStamp(def, rectCells(...r), [0, 0], ['.'], true), (p) => inTiles(p, ...r));
+  return out.rows === def.rows && sameObjects(def, out) ? def : out;
+}
+
+/**
+ * Paste a clip with its top-left tile at (x, y). It replaces everything under
+ * it, objects too, except the level's start, key and door (a copied one
+ * moves it instead); what lands off the level is left out.
+ */
+export function pasteClip(def: LevelDef, x: number, y: number, clip: Clip): LevelDef {
+  const w = stampWidth(clip.rows);
+  if (!w) return def;
+  let out = clearRect(def, x, y, x + w - 1, y + clip.rows.length - 1);
+  // The start, key and door stay, unless the clip brings its own (which moves them).
+  out = { ...out, ...pick(def, ['spawn', 'facing', 'key', 'door']) };
+  out = placeStamp(out, x, y, clip.rows);
+  for (const [at, what] of objectPlacements(shiftObjects(clip.objects, x, y))) out = placeObject(out, at, what);
+  // (Cleared and put back, the rows are new but may hold the same.)
+  return out.rows.join() === def.rows.join() && sameObjects(def, out) ? def : out;
+}
+
+/** Each object, and how placeObject would place it. */
+export function objectPlacements(o: Objects): [Coord, Placement][] {
+  const out: [Coord, Placement][] = [];
+  if (o.spawn) out.push([o.spawn, { kind: 'spawn', facing: o.facing }]);
+  if (o.key) out.push([o.key, { kind: 'key' }]);
+  if (o.door) out.push([o.door, { kind: 'door' }]);
+  for (const k of ['gold', 'toggleGold', 'mines', 'toggleMines'] as const) for (const p of o[k] ?? []) out.push([p, { kind: k }]);
+  for (const [px, py, orientation] of o.launchPads ?? []) out.push([[px, py], { kind: 'launchPads', orientation }]);
+  return out;
+}
+
+/** A clip flipped left to right or top to bottom: tiles mirrored, objects moved across, launch pads and the start turned. */
+export function flipClip(clip: Clip, axis: 'horizontal' | 'vertical'): Clip {
+  const u = UNITS_PER_TILE;
+  const across = axis === 'horizontal' ? u * (stampWidth(clip.rows) + 2) : u * (clip.rows.length + 2);
+  const move = ([x, y]: Coord): Coord => (axis === 'horizontal' ? [across - x, y] : [x, across - y]);
+  const o = clip.objects;
+  const objects: Objects = {};
+  if (o.spawn) objects.spawn = move(o.spawn);
+  const facing = axis === 'horizontal' && o.spawn ? (o.facing === 'left' ? undefined : 'left') : o.facing;
+  if (facing) objects.facing = facing;
+  if (o.key) objects.key = move(o.key);
+  if (o.door) objects.door = move(o.door);
+  for (const k of ['gold', 'toggleGold', 'mines', 'toggleMines'] as const) if (o[k]) objects[k] = o[k]!.map(move);
+  // Directions are 0 right, then clockwise: mirroring left-right swaps 0 and 4, top-bottom 2 and 6.
+  if (o.launchPads) objects.launchPads = o.launchPads.map(([x, y, d]) => [...move([x, y]), (axis === 'horizontal' ? 12 - d : 8 - d) % 8]);
+  return { rows: flipStamp(clip.rows, axis), objects };
+}
+
 /** The kinds of object a level can hold, by their lists (or single entries) in LevelDef. */
-export type ObjectKind = 'spawn' | 'key' | 'door' | 'gold' | 'mines' | 'toggleMines' | 'launchPads';
+export type ObjectKind = 'spawn' | 'key' | 'door' | 'gold' | 'toggleGold' | 'mines' | 'toggleMines' | 'launchPads';
 /** Objects a level has at most one of. */
-const SINGLE: ObjectKind[] = ['spawn', 'key', 'door'];
-const LISTS = ['gold', 'mines', 'toggleMines', 'launchPads'] as const;
+const SINGLE = ['spawn', 'key', 'door'] as const;
+const LISTS = ['gold', 'toggleGold', 'mines', 'toggleMines', 'launchPads'] as const;
+/** A level's objects (or some objects on their own, like a copied rectangle's). */
+export type Objects = Pick<LevelDef, 'spawn' | 'facing' | (typeof SINGLE)[number] | (typeof LISTS)[number]>;
 
 /** What to place: a kind of object, which way a spawn faces, and which way a launch pad points. */
 export interface Placement {
@@ -165,11 +264,11 @@ export function removeObjects(def: LevelDef, points: readonly Coord[], reach = 1
 }
 
 /** A copy of the level without the objects at points where `drop` is true. */
-function withoutObjects(def: LevelDef, drop: (p: Coord) => boolean): LevelDef {
-  const out: LevelDef = { ...def };
+function withoutObjects<T extends Objects>(def: T, drop: (p: Coord) => boolean): T {
+  const out: T = { ...def };
   for (const k of SINGLE) {
-    const p = out[k as 'spawn' | 'key' | 'door'];
-    if (p && drop(p)) delete out[k as 'spawn' | 'key' | 'door'];
+    const p = out[k];
+    if (p && drop(p)) delete out[k];
   }
   if (!out.spawn) delete out.facing;
   for (const k of LISTS) {
@@ -183,7 +282,7 @@ function withoutObjects(def: LevelDef, drop: (p: Coord) => boolean): LevelDef {
 }
 
 /** Whether two levels have the same objects in the same places. */
-function sameObjects(a: LevelDef, b: LevelDef): boolean {
+function sameObjects(a: Objects, b: Objects): boolean {
   return (['facing', ...SINGLE, ...LISTS] as const).every((k) => JSON.stringify(a[k]) === JSON.stringify(b[k]));
 }
 
@@ -227,13 +326,14 @@ export function resize(def: LevelDef, edge: Edge, count: number): LevelDef {
 }
 
 /** Move all the objects by whole tiles. */
-function shiftObjects(def: LevelDef, dx: number, dy: number): LevelDef {
+export function shiftObjects<T extends Objects>(def: T, dx: number, dy: number): T {
   const move = ([x, y]: Coord): Coord => [x + dx * UNITS_PER_TILE, y + dy * UNITS_PER_TILE];
   const out = { ...def };
   if (def.spawn) out.spawn = move(def.spawn);
   if (def.key) out.key = move(def.key);
   if (def.door) out.door = move(def.door);
   if (def.gold) out.gold = def.gold.map(move);
+  if (def.toggleGold) out.toggleGold = def.toggleGold.map(move);
   if (def.mines) out.mines = def.mines.map(move);
   if (def.toggleMines) out.toggleMines = def.toggleMines.map(move);
   if (def.launchPads) out.launchPads = def.launchPads.map(([x, y, o]) => [...move([x, y]), o]);
@@ -265,7 +365,7 @@ export function check(def: LevelDef): Check {
 }
 
 /** The order of a level's fields in levels.json. */
-const FIELD_ORDER = ['name', 'description', 'time', 'rows', 'spawn', 'facing', 'key', 'door', 'gold', 'mines', 'toggleMines', 'launchPads'];
+const FIELD_ORDER = ['name', 'description', 'time', 'rows', 'spawn', 'facing', 'key', 'door', 'gold', 'toggleGold', 'mines', 'toggleMines', 'launchPads'];
 
 /**
  * The level as an entry for src/level/levels.json: name, description and

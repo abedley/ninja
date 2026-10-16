@@ -5,6 +5,7 @@ import { parseLevel, upgradeLevel } from '../src/level/level';
 import { LEVELS } from '../src/level/levels';
 import { Simulator } from '../src/physics/simulator';
 import { NinjaState } from '../src/physics/ninja';
+import { GoldState } from '../src/physics/gold';
 import { GREASED_TILE } from '../src/physics/tileDefs';
 
 describe('shipped levels', () => {
@@ -36,6 +37,7 @@ describe('level parser', () => {
       gold: [[9, 7], [14, 6]],
       mines: [[20, 8]],
       toggleMines: [[12, 4]],
+      toggleGold: [[16, 4]],
       key: [10, 6],
       door: [22, 6],
       launchPads: [[16, 8, 6]],
@@ -44,6 +46,7 @@ describe('level parser', () => {
     expect(level.gold).toEqual([{ x: 54, y: 42 }, { x: 84, y: 36 }]);
     expect(level.mines).toEqual([{ x: 120, y: 48 }]);
     expect(level.toggleMines).toEqual([{ x: 72, y: 24 }]);
+    expect(level.toggleGold).toEqual([{ x: 96, y: 24 }]);
     expect(level.exit).toEqual({ key: { x: 60, y: 36 }, door: { x: 132, y: 36 } });
     expect(level.launchPads).toEqual([{ x: 96, y: 48, orientation: 6 }]);
     expect(parseLevel({ name: 'x', rows: ['.'], spawn: [6, 6] }).facing).toBe(1);
@@ -97,6 +100,40 @@ describe('gold', () => {
     const sim = new Simulator(level.map, level.spawnX, level.spawnY, level);
     for (let i = 0; i < 120; i++) sim.tick(1, false);
     expect(sim.goldCollected).toBe(0);
+  });
+});
+
+describe('toggle gold', () => {
+  // A corridor with toggle gold in its middle, at the ninja's height (6 px units: tile 5's centre).
+  const level = parseLevel({ name: 'x', rows: ['.........', '#########'], spawn: [6, 6], toggleGold: [[22, 6]] });
+
+  it('is only collected the second time through: touched once, moved off, then touched again', () => {
+    const sim = new Simulator(level.map, level.spawnX, level.spawnY, level);
+    const g = sim.gold[0];
+    expect([sim.gold.length, g.state]).toEqual([1, GoldState.Dormant]);
+    // Run right through it: it wakes as the ninja passes, and is ready once it's gone by.
+    const states = new Set<GoldState>();
+    for (let i = 0; i < 70; i++) {
+      sim.tick(1, false);
+      states.add(g.state);
+    }
+    expect(states).toEqual(new Set([GoldState.Dormant, GoldState.Waking, GoldState.Ready]));
+    expect([sim.goldCollected, g.active]).toEqual([0, true]);
+    // Back through it: collected, with its time bonus.
+    for (let i = 0; i < 70 && !sim.goldCollected; i++) sim.tick(-1, false);
+    expect([sim.goldCollected, g.active, sim.goldThisTick]).toEqual([1, false, [g]]);
+  });
+
+  it('goes back to dormant if the ninja dies on it', () => {
+    const sim = new Simulator(level.map, level.spawnX, level.spawnY, level);
+    const g = sim.gold[0];
+    for (let i = 0; i < 70 && g.state !== GoldState.Waking; i++) sim.tick(1, false);
+    expect(g.state).toBe(GoldState.Waking);
+    // (The ninja is dead the frame after it's killed.)
+    sim.ninja.kill(sim.ninja.xpos, sim.ninja.ypos, 0, 0);
+    sim.tick(0, false);
+    sim.tick(0, false);
+    expect(g.state).toBe(GoldState.Dormant);
   });
 });
 

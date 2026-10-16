@@ -23,8 +23,8 @@ import { TileMap } from '../physics/tileMap';
  * A mild ramp rising to the right is "cg" (short then raised); falling, "hd".
  * A steep ramp spans two rows in one column: "k" above "o" rising, "l" above "p" falling.
  *
- * Everything else (the ninja's start, gold, mines, the key and door, launch
- * pads) is placed by coordinates, in N++'s 6 px entity units: 4 per tile,
+ * Everything else (the ninja's start, gold, toggle gold, mines, the key and
+ * door, launch pads) is placed by coordinates, in N++'s 6 px entity units: 4 per tile,
  * counted from the outer edge of the border, so a tile's centre is at 4n + 2
  * and its edges at multiples of 4.
  */
@@ -50,6 +50,8 @@ export interface LevelDef {
   mines?: Coord[];
   /** Toggle mines: safe until touched, armed once the ninja moves off them. */
   toggleMines?: Coord[];
+  /** Toggle gold: can't be collected until the ninja has touched it once and moved off it. */
+  toggleGold?: Coord[];
   /** The key (N++'s exit switch) and the exit door it opens: a level has both or neither. */
   key?: Coord;
   door?: Coord;
@@ -74,6 +76,7 @@ export interface Level {
   gold: Point[];
   mines: Point[];
   toggleMines: Point[];
+  toggleGold: Point[];
   launchPads: LaunchPadPlacement[];
   exit?: { door: Point; key: Point };
   /** Seconds on the clock at the start, if the level is timed. */
@@ -131,6 +134,7 @@ export function parseLevel(def: LevelDef): Level {
     gold: (def.gold ?? []).map(point),
     mines: (def.mines ?? []).map(point),
     toggleMines: (def.toggleMines ?? []).map(point),
+    toggleGold: (def.toggleGold ?? []).map(point),
     launchPads,
     exit: def.key && def.door ? { door: point(def.door), key: point(def.key) } : undefined,
     time: def.time,
