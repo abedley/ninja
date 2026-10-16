@@ -11,8 +11,8 @@ the wall and sends it running the other way. In each level, pick up the key to
 open the exit door, avoiding the mines, and get there before the clock runs
 out. Fall too far and you die.
 
-The game opens on a main menu: **Play** lists the campaigns (so far there's
-one, *Midnight City*), **High scores** shows each campaign's best runs and best
+The game opens on a main menu: **Play** lists the campaigns, *Midnight City*
+and *Cloud City*, **High scores** shows each campaign's best runs and best
 level times, and **Level editor** opens the editor. The ⌂ button (or Esc)
 during play pauses and brings the menu back, with **Resume** at the top.
 
@@ -21,7 +21,9 @@ start with 30 seconds, each level starts with the time left at the end of the
 one before, and each piece of gold adds two seconds. Dying (or running out of
 time) sends you back to the start of the level you're on, with the clock back
 where it was when you started it. Midnight City's levels are First Steps,
-Wall Jumping, Hop, Skip, Jump!, Risk Reward Room and Fireman.
+Wall Jumping, Hop, Skip, Jump!, Risk Reward Room and Fireman. Cloud City's are
+Door in the Clouds, Silver Lining, Updraft (launch pads), Thunderhead (a storm
+cloud with lightning) and Cloud Nine.
 
 The game keeps your best score for each level and your five best runs, ranked
 by the time left at the end, in the browser. A level's score is 30 seconds less
