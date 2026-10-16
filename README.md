@@ -197,7 +197,18 @@ copy shows where the next one will go. A point holds one object, so placing
 on one replaces it (or turns a launch pad), and there's only one start, key
 and door, so placing those moves them. Right-click with an object tool, or
 drag the **Remove objects** tool over them, to take objects away; painting
-terrain leaves objects where they are. Ctrl+Z undoes. You
+terrain leaves objects where they are. Ctrl+Z undoes.
+
+The mild and steep slopes take two tiles per ramp; the first four buttons in
+each of those groups place a whole ramp (both tiles) in one click, by its
+top-left tile. Dragging or Shift-dragging with one repeats it edge to edge.
+To copy terrain, pick **Select**, drag a rectangle, then **Copy** (Ctrl+C),
+**Cut** (Ctrl+X) or **Clear** (Delete). **Paste** (Ctrl+V) shows the copy
+under the pointer; click to place it by its top-left corner (it replaces
+everything under it, empty tiles too), and Esc to stop. **Flip ↔** and
+**Flip ↕** mirror the copy, tiles and all, so a slope copied from one side
+of a cloud fits the other. Copying is terrain only, and the copy stays while
+you load other levels, so you can move pieces between them. You
 can resize the level at any edge, set a time limit, and load any level in the
 game to start from. **Playtest** opens the level in the game, with a pencil
 button to come back. The draft is kept in your browser.

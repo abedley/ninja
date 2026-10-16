@@ -372,3 +372,18 @@ label.inline {
     display: none;
   }
 }
+
+/* Copy, cut, clear and flip, under the select and paste tools (as wide as the tool grid). */
+.clip-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  width: 172px;
+  margin-top: 6px;
+}
+
+.clip-actions button {
+  min-height: 28px;
+  padding: 2px 8px;
+  font-size: 12.5px;
+}

@@ -42,6 +42,78 @@ export function setCells(def: LevelDef, cells: readonly [number, number][], ch: 
   return changed ? { ...def, rows: grid.map((r) => r.join('')) } : def;
 }
 
+/**
+ * A block of terrain: rows of tile characters, placed by its top-left
+ * corner. A single tile is a 1x1 stamp; copied rectangles and the two-tile
+ * ramps are bigger ones.
+ */
+export type Stamp = readonly string[];
+
+/** The terrain in a rectangle between two corners (inclusive), clipped to the level. */
+export function copyRect(def: LevelDef, x0: number, y0: number, x1: number, y1: number): Stamp {
+  const { width, height } = size(def);
+  const left = Math.max(0, Math.min(x0, x1));
+  const right = Math.min(width - 1, Math.max(x0, x1));
+  const top = Math.max(0, Math.min(y0, y1));
+  const bottom = Math.min(height - 1, Math.max(y0, y1));
+  if (left > right || top > bottom) return [];
+  return def.rows.slice(top, bottom + 1).map((r) => r.slice(left, right + 1));
+}
+
+/** Put a stamp's top-left corner at (x, y); `erase` clears its cells instead. Parts off the level are left out. */
+export function placeStamp(def: LevelDef, x: number, y: number, stamp: Stamp, erase = false): LevelDef {
+  return fillStamp(def, rectCells(x, y, x + stampWidth(stamp) - 1, y + stamp.length - 1), [x, y], stamp, erase);
+}
+
+/**
+ * Fill cells with a stamp repeated edge to edge from `origin` (so a
+ * rectangle of a two-tile ramp alternates its halves); `erase` clears them.
+ */
+export function fillStamp(def: LevelDef, cells: readonly [number, number][], origin: [number, number], stamp: Stamp, erase = false): LevelDef {
+  const w = stampWidth(stamp);
+  const h = stamp.length;
+  if (!w || !h) return def;
+  const { width, height } = size(def);
+  const grid = def.rows.map((r) => r.split(''));
+  let changed = false;
+  for (const [x, y] of cells) {
+    if (x < 0 || y < 0 || x >= width || y >= height) continue;
+    const ch = erase ? EMPTY : stamp[mod(y - origin[1], h)][mod(x - origin[0], w)] ?? EMPTY;
+    if (grid[y][x] === ch) continue;
+    grid[y][x] = ch;
+    changed = true;
+  }
+  return changed ? { ...def, rows: grid.map((r) => r.join('')) } : def;
+}
+
+/** Where the copies of a stamp start, from `origin`, for the block holding (x, y). */
+export function stampCorner(stamp: Stamp, origin: [number, number], [x, y]: [number, number]): [number, number] {
+  const w = stampWidth(stamp) || 1;
+  const h = stamp.length || 1;
+  return [origin[0] + Math.floor((x - origin[0]) / w) * w, origin[1] + Math.floor((y - origin[1]) / h) * h];
+}
+
+export const stampWidth = (stamp: Stamp) => stamp[0]?.length ?? 0;
+const mod = (a: number, n: number) => ((a % n) + n) % n;
+
+/** Each tile mirrored left to right, and top to bottom (the rest look the same either way). */
+const MIRROR = {
+  horizontal: pairs('RL yz /\\ uv wx UV WX ab cd ef gh ij kl mn op'),
+  vertical: pairs('TB y\\ z/ ux vw UX VW ad bc eh fg il jk mp no'),
+};
+function pairs(spec: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [a, b] of spec.split(' ')) [out[a], out[b]] = [b, a];
+  return out;
+}
+
+/** A stamp flipped left to right or top to bottom, its tiles mirrored too (so ramps still join up). */
+export function flipStamp(stamp: Stamp, axis: 'horizontal' | 'vertical'): Stamp {
+  const flip = (ch: string) => MIRROR[axis][ch] ?? ch;
+  if (axis === 'vertical') return [...stamp].reverse().map((r) => [...r].map(flip).join(''));
+  return stamp.map((r) => [...r].reverse().map(flip).join(''));
+}
+
 /** The kinds of object a level can hold, by their lists (or single entries) in LevelDef. */
 export type ObjectKind = 'spawn' | 'key' | 'door' | 'gold' | 'mines' | 'toggleMines' | 'launchPads';
 /** Objects a level has at most one of. */

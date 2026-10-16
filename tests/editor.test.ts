@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { blankLevel, check, exportLevels, exportText, importText, placeObject, rectCells, removeObjects, resize, setCell, setCells, size } from '../src/editor/levelEdit';
-import { parseLevel, type Coord, type LevelDef } from '../src/level/level';
+import { blankLevel, check, copyRect, exportLevels, exportText, fillStamp, flipStamp, importText, placeObject, placeStamp, rectCells, removeObjects, resize, setCell, setCells, size, stampCorner } from '../src/editor/levelEdit';
+import { TILE_POLYS } from '../src/game/tileShapes';
+import { parseLevel, TILE_LEGEND, type Coord, type LevelDef } from '../src/level/level';
 import testLevels from './fixtures/levels.json';
 
 /** A test level (tests/fixtures/levels.json) with plenty in it. */
@@ -33,6 +34,51 @@ describe('level editor operations', () => {
 
   it('fills rectangles', () => {
     expect(setCells(tiny(['....', '....']), rectCells(3, 1, 1, 0), '#').rows).toEqual(['.###', '.###']);
+  });
+
+  it('places stamps by their top-left corner, clipped to the level', () => {
+    const def = tiny(['....', '....', '....']);
+    expect(placeStamp(def, 1, 1, ['cg']).rows).toEqual(['....', '.cg.', '....']);
+    expect(placeStamp(def, 3, 0, ['k', 'o']).rows).toEqual(['...k', '...o', '....']);
+    expect(placeStamp(def, 3, 2, ['cg']).rows).toEqual(['....', '....', '...c']);
+    expect(placeStamp(def, -1, -1, ['##', '#.']).rows).toEqual(['....', '....', '....']);
+    expect(placeStamp(placeStamp(def, 1, 1, ['cg']), 1, 1, ['cg'], true)).toEqual(def);
+    // A pasted block overwrites everything under it, empty cells too.
+    expect(placeStamp(tiny(['####']), 1, 0, ['.G']).rows).toEqual(['#.G#']);
+  });
+
+  it('repeats a stamp across a rectangle, from where it started', () => {
+    const def = tiny(['.....', '.....']);
+    expect(fillStamp(def, rectCells(0, 0, 4, 1), [0, 0], ['cg']).rows).toEqual(['cgcgc', 'cgcgc']);
+    expect(fillStamp(def, rectCells(1, 0, 4, 1), [4, 1], ['k', 'o']).rows).toEqual(['.oooo', '.kkkk']);
+    // The block under the pointer, for dragging: stamps line up with the first one.
+    expect(stampCorner(['cg'], [1, 1], [4, 3])).toEqual([3, 3]);
+    expect(stampCorner(['cg'], [1, 1], [0, 0])).toEqual([-1, 0]);
+    expect(stampCorner(['k', 'o'], [1, 1], [2, 4])).toEqual([2, 3]);
+  });
+
+  it('copies rectangles of terrain', () => {
+    const def = tiny(['#..G', '.cg.', '..#.']);
+    expect(copyRect(def, 2, 2, 1, 0)).toEqual(['..', 'cg', '.#']);
+    expect(copyRect(def, 3, 1, 9, 9)).toEqual(['.', '.']);
+    expect(copyRect(def, 5, 0, 9, 9)).toEqual([]);
+  });
+
+  it('flips stamps, mirroring each tile to the one with the mirrored shape', () => {
+    expect(flipStamp(['cg', '#.'], 'horizontal')).toEqual(['hd', '.#']);
+    expect(flipStamp(['k', 'o'], 'vertical')).toEqual(['n', 'j']);
+    expect(flipStamp(flipStamp(['ea'], 'vertical'), 'vertical')).toEqual(['ea']);
+    // Every tile against its drawn shape.
+    const shape = (id: number, f: (x: number, y: number) => [number, number] = (x, y) => [x, y]) =>
+      (TILE_POLYS[id] ?? [])
+        .map(([x, y]) => f(x, y).map((v) => Math.round(v * 1000) / 1000 + 0).join(','))
+        .sort()
+        .join(' ');
+    for (const ch of TILE_LEGEND) {
+      const id = TILE_LEGEND.indexOf(ch);
+      expect(shape(TILE_LEGEND.indexOf(flipStamp([ch], 'horizontal')[0][0])), ch).toBe(shape(id, (x, y) => [24 - x, y]));
+      expect(shape(TILE_LEGEND.indexOf(flipStamp([ch], 'vertical')[0][0])), ch).toBe(shape(id, (x, y) => [x, 24 - y]));
+    }
   });
 
   it('places objects on any point of the 6 px grid, one per point', () => {
