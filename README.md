@@ -103,7 +103,7 @@ reverse-engineered N++ simulator, used to validate real N++ replays. N++ uses N'
 model, run at 60 fps instead of 40 (its per-frame multipliers are N's raised to
 the power 2/3).
 
-`tests/golden.test.ts` replays about 140,000 frames of scripted and random input
+`tests/golden.test.ts` replays about 170,000 frames of scripted and random input
 through both simulators. Our ninja must match **bit for bit on every frame**
 (position, speed and state). The traces cover running, jump buffering, wall
 slides, both kinds of wall jump, slope jumps, every tile type and impact deaths.
@@ -114,7 +114,10 @@ and doors where the ninja passes just inside or just outside touching
 distance, to test the boundaries. Others check the order N++ tests entities
 in, which decides what happens when the ninja touches the door and a mine (or
 gold) on the same frame. Launch pads face all 8 ways and are met from every
-side, with jumps timed on and around the frames they throw.
+side, with jumps timed on and around the frames they throw. One-way platforms
+face all 4 ways, met from the front, from behind and at their ends; single
+ones are placed wherever they change the ninja's path in the reference, and
+others fill levels at random, some among launch pads.
 
 The reference is run with one change: Python's `x**2` is evaluated as `x*x`.
 Python's `**` calls the C library's `pow()`, which on glibc differs from `x*x` in
@@ -155,13 +158,15 @@ multiples of 4.
 "mines": [[40, 92]],
 "toggleMines": [[52, 92]],
 "toggleGold": [[30, 60]],
-"launchPads": [[24, 120, 6]]
+"launchPads": [[24, 120, 6]],
+"oneWays": [[30, 100, 6], [34, 100, 6]]
 ```
 
 `"spawn"` is where the ninja starts; it faces (and sets off) right, or left with
 `"facing": "left"`. A level has both a `"key"` and a `"door"`, or neither. Each
 launch pad is `[x, y, direction]`, with N++'s directions: 0 right, 1
-down-right, 2 down, 3 down-left, 4 left, 5 up-left, 6 up, 7 up-right.
+down-right, 2 down, 3 down-left, 4 left, 5 up-left, 6 up, 7 up-right. A
+one-way platform is `[x, y, direction]` too, facing 0, 2, 4 or 6.
 `"time"` gives the level a clock, in seconds.
 
 Levels used to mark the spawn, gold, mines, key and door in their rows (`N`,
@@ -201,6 +206,15 @@ Entities work as in N++ (all but launch pads leave movement alone):
   whichever way the ninja comes at it. From in front it fires only once the
   ninja is within 10 px of it, which is when it lands on a floor pad. When a
   pad throws the ninja sideways, the auto-run follows it.
+- **One-way platforms** are solid only from the side they face: a surface a
+  tile (24 px) across, centred on its point, facing up (6), down (2), left (4)
+  or right (0), as in N++. Facing up, the ninja jumps up through it and lands
+  on it; facing down, it drops through and bumps its head from below; facing
+  sideways, it's a wall from the front (to slide down and jump off) and nothing
+  from behind. Place them on tile edges (multiples of 4) to line them up with
+  the terrain, and side by side, 4 apart, for a longer one. In the game they're
+  a neon line like the terrain's edges, with chevrons behind pointing the way
+  through. Like launch pads they're checked frame for frame against nclone.
 
 The clock isn't part of N++'s physics: N has one, but nclone doesn't model it.
 Here it starts with the first tap, counts down one frame per tick, stops when
@@ -213,8 +227,8 @@ The game's site has a level editor at `/editor/` (for example
 `https://<user>.github.io/<repo>/editor/`, or `http://localhost:5173/editor/`
 with `npm run dev`). Paint terrain on the grid: drag to paint, right-click to
 erase, and Shift-drag to fill a rectangle. Objects (the ninja's start, facing
-either way, gold, toggle gold, mines, toggle mines, the key and door, and launch pads
-pointing any of 8 ways) go on any point of the 6 px entity grid: on a tile's
+either way, gold, toggle gold, mines, toggle mines, the key and door, launch pads
+pointing any of 8 ways, and one-way platforms facing any of 4) go on any point of the 6 px entity grid: on a tile's
 edge (a floor, wall or ceiling), in its middle, or anywhere between. A faint
 copy shows where the next one will go. A point holds one object, so placing
 on one replaces it (or turns a launch pad), and there's only one start, key

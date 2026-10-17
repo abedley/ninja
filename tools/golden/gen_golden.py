@@ -103,12 +103,12 @@ def gold_field():
 ENTITY_TYPES = {'$': 2, '*': 1, '%': 21}  # gold, mine, toggle mine
 
 
-def to_map_data(rows, extra_gold=(), mines=(), toggle_mines=(), exit=None, launch_pads=()):
+def to_map_data(rows, extra_gold=(), mines=(), toggle_mines=(), exit=None, launch_pads=(), one_ways=()):
     """Build an N++ map data array (tiles, ninja spawn, gold, mines, launch pads, exit) from an ASCII level.
 
     Extra entities are (x, y) in 6px units. Entities of one type are loaded (and
     so updated) in this order: those in the rows, then the extra ones. `exit` is
-    ((door x, door y), (key x, key y)). Launch pads are (x, y, orientation).
+    ((door x, door y), (key x, key y)). Launch pads and one-way platforms are (x, y, orientation).
     """
     assert len(rows) == 23 and all(len(r) == 42 for r in rows)
     data = [0] * 1235
@@ -137,6 +137,8 @@ def to_map_data(rows, extra_gold=(), mines=(), toggle_mines=(), exit=None, launc
             data += [t, ex, ey, 0, 0]
     for ex, ey, orientation in launch_pads:
         data += [10, ex, ey, orientation, 0]
+    for ex, ey, orientation in one_ways:
+        data += [11, ex, ey, orientation, 0]
     if exit:
         # Exit doors come first, then their switches in the same order (one entry each).
         (dx, dy), (kx, ky) = exit
@@ -236,9 +238,9 @@ def graze_mines(Simulator, rows, inputs, reach=15):
     return near
 
 
-def run(Simulator, rows, inputs, extra_gold=(), mines=(), toggle_mines=(), exit=None, launch_pads=()):
+def run(Simulator, rows, inputs, extra_gold=(), mines=(), toggle_mines=(), exit=None, launch_pads=(), one_ways=()):
     sim = Simulator()
-    sim.load(to_map_data(rows, extra_gold, mines, toggle_mines, exit, launch_pads))
+    sim.load(to_map_data(rows, extra_gold, mines, toggle_mines, exit, launch_pads, one_ways))
     # nclone files the exit switch under its door's type (3), after the door.
     key = sim.entity_dic[3][1] if exit else None
     exit_log = [None, None]  # frames the key was collected and the ninja won
@@ -404,6 +406,60 @@ def launch_pad_scenarios(Simulator):
     return out
 
 
+def random_one_ways(seed, rows, count):
+    """One-way platforms facing random ways (N++'s 4) at random points of the 6px grid over empty tiles."""
+    rng = Lcg(seed)
+    return [(x, y, 2 * int(rng.next() * 4)) for x, y in random_mines(seed + 1, rows, count)]
+
+
+def one_way_scenarios(Simulator):
+    """One-way platforms facing each way, met from the front, the back and the sides. Entries: (name, rows, inputs, one-ways, launch pads)."""
+    out = []
+    jump_up = scripted((20, 1, False), (40, 1, True), (200, 1, False))
+    # A row of up-facing platforms 2 and 3 tiles over the floor (FLAT's floor top is at 6px y = 92): jumped up through, landed on, run off.
+    for h in (8, 12):
+        row = [(x, 92 - h, 6) for x in range(30, 62, 4)]
+        out.append((f'one-ways: up, {h // 4} tiles over the floor, jumped up through', FLAT, jump_up, row, []))
+        out.append((f'one-ways: up, {h // 4} tiles over the floor, jumped up through and held', FLAT,
+                    scripted((20, 1, False), (60, 1, True), (30, 1, False), (40, 1, True), (150, -1, False)), row, []))
+    # Down-facing (solid from below): bonked into from below, and fallen through from above.
+    row = [(x, 84, 2) for x in range(30, 62, 4)]
+    out.append(('one-ways: down, jumped into from below', FLAT, jump_up, row, []))
+    out.append(('one-ways: down, fallen through from above', with_spawn(FLAT, 9, 10), scripted((200, 1, False)), [(x, 70, 2) for x in range(38, 54, 4)], []))
+    out.append(('one-ways: up, fallen onto from above', with_spawn(FLAT, 9, 10), scripted((60, 0, False), (200, 1, False)), [(x, 70, 6) for x in range(34, 62, 4)], []))
+    # Sideways ones, in a column: from the side they face, a wall (slid down and jumped off); from behind, nothing.
+    for o, name in ((4, 'left'), (0, 'right')):
+        col = [(50, y, o) for y in range(60, 93, 4)]
+        out.append((f'one-ways: {name}, met from the left', FLAT, scripted((80, 1, False), (30, 1, True), (10, 0, False), (40, -1, True), (150, 1, False)), col, []))
+        out.append((f'one-ways: {name}, met from the left in the air', FLAT, scripted((10, 1, False), (40, 1, True), (30, 1, False), (25, -1, True), (150, -1, False)), col, []))
+        out.append((f'one-ways: {name}, met from the right', with_spawn(FLAT, 20, 21), scripted((150, -1, False), (40, -1, True), (100, -1, False)), col, []))
+    # A lone platform, wherever it changes the ninja's path (its ends, its face, at an angle): every 6px
+    # point near the path is tried, and those that make a difference (in the reference) are kept, spread out.
+    # (Two paths: setting off right, and from further along, setting off left.)
+    rightwards = scripted((14, 1, False), (30, 1, True), (60, 1, False), (25, -1, True), (70, -1, False))
+    leftwards = [(-hor, jump) for hor, jump in rightwards]
+    for rows, inputs, way, xs in ((FLAT, rightwards, 'right', range(26, 62, 2)), (with_spawn(FLAT, 20, 21), leftwards, 'left', range(56, 92, 2))):
+        base = run(Simulator, rows, inputs)[0]
+        for o in (0, 2, 4, 6):
+            hits = [(x, y) for y in range(70, 93, 2) for x in xs
+                    if run(Simulator, rows, inputs, one_ways=[(x, y, o)])[0] != base]
+            for x, y in hits[:: max(1, len(hits) // 8)]:
+                out.append((f'one-ways: lone, facing {o}, at {x}, {y}, setting off {way}', rows, inputs, [(x, y, o)], []))
+    # Platforms everywhere, with random inputs; and with launch pads among them.
+    for i, (x, y) in enumerate([(1, 21), (20, 21), (28, 21), (14, 6), (27, 16), (36, 13)]):
+        rows = with_spawn(PLAYGROUND, x, y)
+        sx, sy = (x + 1) * 4 + 2, (y + 1) * 4 + 2
+        ways = [p for p in random_one_ways(17000 + i, rows, 60) if abs(p[0] - sx) > 8 or abs(p[1] - sy) > 8]
+        out.append((f'one-ways: random #{i}', rows, random_inputs(18000 + i, 1800), ways, []))
+    for i, (x, y) in enumerate([(2, 20), (25, 17)]):
+        rows = with_spawn(TILE_ZOO, x, y)
+        sx, sy = (x + 1) * 4 + 2, (y + 1) * 4 + 2
+        ways = [p for p in random_one_ways(19000 + i, rows, 40) if abs(p[0] - sx) > 8 or abs(p[1] - sy) > 8]
+        pads = [p for p in random_launch_pads(20000 + i, rows, 20) if (abs(p[0] - sx) > 8 or abs(p[1] - sy) > 8) and p[:2] not in [w[:2] for w in ways]]
+        out.append((f'one-ways: tile zoo with launch pads #{i}', rows, random_inputs(21000 + i, 1800), ways, pads))
+    return out
+
+
 class SquareAsMultiply(ast.NodeTransformer):
     """Rewrite `expr ** 2` as `expr * expr` (all such expressions in nsim are side-effect free)."""
 
@@ -499,6 +555,8 @@ def main():
     scenarios += exit_scenarios(Simulator)
     for name, rows, inputs, pads in launch_pad_scenarios(Simulator):
         scenarios.append((name, rows, inputs, False, [], [], None, pads))
+    for name, rows, inputs, ways, pads in one_way_scenarios(Simulator):
+        scenarios.append((name, rows, inputs, False, [], [], None, pads, ways))
     # Gold everywhere and launch pads: gold is tested where a pad has just thrown the ninja.
     for i, (x, y) in enumerate([(1, 21), (28, 21)]):
         rows = with_spawn(PLAYGROUND, x, y)
@@ -520,7 +578,8 @@ def main():
         mines, toggles = (extra[1], extra[2]) if len(extra) > 1 else ([], [])
         exit = extra[3] if len(extra) > 3 else None
         pads = extra[4] if len(extra) > 4 else []
-        hashes, checkpoints, gold, mine_log, exit_log = run(Simulator, rows, inputs, gold_field() if field else (), mines, toggles, exit, pads)
+        ways = extra[5] if len(extra) > 5 else []
+        hashes, checkpoints, gold, mine_log, exit_log = run(Simulator, rows, inputs, gold_field() if field else (), mines, toggles, exit, pads, ways)
         fixture['scenarios'].append({
             'name': name,
             'rows': rows,
@@ -534,10 +593,11 @@ def main():
             'mineLog': mine_log,
             **({'exit': [list(exit[0]), list(exit[1])], 'exitLog': exit_log} if exit else {}),
             **({'launchPads': [list(p) for p in pads]} if pads else {}),
+            **({'oneWays': [list(p) for p in ways]} if ways else {}),
         })
         print(f'{name}: {len(hashes)} frames, final state {checkpoints[-1][5]}, gold {gold[-1][1] if gold else 0}, '
               f'mine changes {len(mine_log)}' + (f', key/win frames {exit_log}' if exit else '')
-              + (f', launches {run.launches}' if pads else ''))
+              + (f', launches {run.launches}' if pads else '') + (f', one-ways {len(ways)}' if ways else ''))
 
     with open(out_path, 'w') as f:
         json.dump(fixture, f, separators=(',', ':'))

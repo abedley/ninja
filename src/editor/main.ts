@@ -129,6 +129,17 @@ const TOOL_GROUPS: { title: string; tools: Tool[] }[] = [
     tools: PAD_TOOLS.map(([orientation, way]) => object('', `Launch pad, throwing ${way}`, { kind: 'launchPads', orientation })),
   },
   {
+    title: 'One-way platforms',
+    tools: (
+      [
+        [6, 'solid on top: jump up through it, land on it'],
+        [2, 'solid underneath: drop through it, bump your head on it'],
+        [4, 'a wall on its left side, passed through from the right'],
+        [0, 'a wall on its right side, passed through from the left'],
+      ] as const
+    ).map(([orientation, how]) => object('', `One-way platform, ${how}`, { kind: 'oneWays', orientation })),
+  },
+  {
     title: 'Copy and paste',
     tools: [SELECT_TOOL, { ...pasteTool(NOTHING_COPIED), icon: 'paste', label: 'Paste (copy something first)' }],
   },
@@ -522,7 +533,9 @@ function drawToolIcon(icon: HTMLCanvasElement, t: Tool): void {
   g.scale(dpr, dpr);
   g.fillStyle = COLORS.bg;
   g.fillRect(0, 0, px, px);
-  if (t.object?.kind === 'launchPads') {
+  if (t.object?.kind === 'oneWays') {
+    drawOneWay(g, px / 2, px / 2, 26, t.object.orientation!);
+  } else if (t.object?.kind === 'launchPads') {
     // Set back a little, so the chevrons fit.
     const o = t.object.orientation!;
     const [dx, dy] = LAUNCH_PAD_DIRECTIONS[o];
@@ -738,6 +751,39 @@ function drawPad(g: CanvasRenderingContext2D, x: number, y: number, s: number, o
   g.restore();
 }
 
+/**
+ * A one-way platform centred at (x, y), at `s` px per tile: its solid face a
+ * tile across, a strip behind it, and chevrons the way it can be passed through.
+ */
+function drawOneWay(g: CanvasRenderingContext2D, x: number, y: number, s: number, orientation: number): void {
+  const [nx, ny] = LAUNCH_PAD_DIRECTIONS[orientation];
+  const k = s / TILE_SIZE;
+  g.save();
+  g.translate(x, y);
+  // The face along x, the side it faces towards -y.
+  g.rotate(Math.atan2(nx, -ny));
+  g.scale(k, k);
+  g.fillStyle = 'rgba(37, 212, 255, 0.18)';
+  g.fillRect(-12, 0, 24, 4.5);
+  g.strokeStyle = COLORS.edge;
+  g.lineCap = 'round';
+  g.lineJoin = 'round';
+  g.lineWidth = 0.9;
+  g.beginPath();
+  for (const cx of [-7, 0, 7]) {
+    g.moveTo(cx - 2, 3.8);
+    g.lineTo(cx, 1.6);
+    g.lineTo(cx + 2, 3.8);
+  }
+  g.stroke();
+  g.lineWidth = 2;
+  g.beginPath();
+  g.moveTo(-12, 0);
+  g.lineTo(12, 0);
+  g.stroke();
+  g.restore();
+}
+
 function tileMapOf(d: LevelDef): TileMap {
   const { width, height } = size(d);
   const tiles = new Uint8Array((width + 2) * (height + 2)).fill(1);
@@ -906,6 +952,8 @@ function drawObject(g: CanvasRenderingContext2D, what: Placement, x: number, y: 
   g.globalAlpha *= alpha;
   if (what.kind === 'launchPads') {
     drawPad(g, x, y, tileSize, what.orientation ?? 6);
+  } else if (what.kind === 'oneWays') {
+    drawOneWay(g, x, y, tileSize, what.orientation ?? 6);
   } else {
     const ch = { spawn: what.facing === 'left' ? '<' : 'N', gold: '$', toggleGold: '&', mines: '*', toggleMines: '%', key: 'K', door: 'D' }[what.kind];
     // Mines are drawn a little smaller, so neighbours stay apart.
@@ -924,6 +972,7 @@ function drawObjects(g: CanvasRenderingContext2D, d: Objects, unit: number): voi
   for (const p of d.mines ?? []) at(p, { kind: 'mines' });
   for (const p of d.toggleGold ?? []) at(p, { kind: 'toggleGold' });
   for (const p of d.toggleMines ?? []) at(p, { kind: 'toggleMines' });
+  for (const [x, y, orientation] of d.oneWays ?? []) at([x, y], { kind: 'oneWays', orientation });
   for (const [x, y, orientation] of d.launchPads ?? []) at([x, y], { kind: 'launchPads', orientation });
   if (d.spawn) at(d.spawn, { kind: 'spawn', facing: d.facing });
 }

@@ -189,7 +189,7 @@ export function objectPlacements(o: Objects): [Coord, Placement][] {
   if (o.key) out.push([o.key, { kind: 'key' }]);
   if (o.door) out.push([o.door, { kind: 'door' }]);
   for (const k of ['gold', 'toggleGold', 'mines', 'toggleMines'] as const) for (const p of o[k] ?? []) out.push([p, { kind: k }]);
-  for (const [px, py, orientation] of o.launchPads ?? []) out.push([[px, py], { kind: 'launchPads', orientation }]);
+  for (const k of ['launchPads', 'oneWays'] as const) for (const [px, py, orientation] of o[k] ?? []) out.push([[px, py], { kind: k, orientation }]);
   return out;
 }
 
@@ -207,15 +207,17 @@ export function flipClip(clip: Clip, axis: 'horizontal' | 'vertical'): Clip {
   if (o.door) objects.door = move(o.door);
   for (const k of ['gold', 'toggleGold', 'mines', 'toggleMines'] as const) if (o[k]) objects[k] = o[k]!.map(move);
   // Directions are 0 right, then clockwise: mirroring left-right swaps 0 and 4, top-bottom 2 and 6.
-  if (o.launchPads) objects.launchPads = o.launchPads.map(([x, y, d]) => [...move([x, y]), (axis === 'horizontal' ? 12 - d : 8 - d) % 8]);
+  for (const k of ['launchPads', 'oneWays'] as const) {
+    if (o[k]) objects[k] = o[k]!.map(([x, y, d]) => [...move([x, y]), (axis === 'horizontal' ? 12 - d : 8 - d) % 8]);
+  }
   return { rows: flipStamp(clip.rows, axis), objects };
 }
 
 /** The kinds of object a level can hold, by their lists (or single entries) in LevelDef. */
-export type ObjectKind = 'spawn' | 'key' | 'door' | 'gold' | 'toggleGold' | 'mines' | 'toggleMines' | 'launchPads';
+export type ObjectKind = 'spawn' | 'key' | 'door' | 'gold' | 'toggleGold' | 'mines' | 'toggleMines' | 'launchPads' | 'oneWays';
 /** Objects a level has at most one of. */
 const SINGLE = ['spawn', 'key', 'door'] as const;
-const LISTS = ['gold', 'toggleGold', 'mines', 'toggleMines', 'launchPads'] as const;
+const LISTS = ['gold', 'toggleGold', 'mines', 'toggleMines', 'launchPads', 'oneWays'] as const;
 /** A level's objects (or some objects on their own, like a copied rectangle's). */
 export type Objects = Pick<LevelDef, 'spawn' | 'facing' | (typeof SINGLE)[number] | (typeof LISTS)[number]>;
 
@@ -223,7 +225,7 @@ export type Objects = Pick<LevelDef, 'spawn' | 'facing' | (typeof SINGLE)[number
 export interface Placement {
   kind: ObjectKind;
   facing?: 'left' | 'right';
-  /** A launch pad's direction (N++'s 0-7). */
+  /** A launch pad's direction (N++'s 0-7), or a one-way platform's (0, 2, 4 or 6). */
   orientation?: number;
 }
 
@@ -248,8 +250,8 @@ export function placeObject(def: LevelDef, at: Coord, what: Placement): LevelDef
     else delete out.facing;
   } else if (what.kind === 'key' || what.kind === 'door') {
     out[what.kind] = [x, y];
-  } else if (what.kind === 'launchPads') {
-    out.launchPads = [...(out.launchPads ?? []), [x, y, what.orientation ?? 6]];
+  } else if (what.kind === 'launchPads' || what.kind === 'oneWays') {
+    out[what.kind] = [...(out[what.kind] ?? []), [x, y, what.orientation ?? 6]];
   } else {
     out[what.kind] = [...(out[what.kind] ?? []), [x, y]];
   }
@@ -337,6 +339,7 @@ export function shiftObjects<T extends Objects>(def: T, dx: number, dy: number):
   if (def.mines) out.mines = def.mines.map(move);
   if (def.toggleMines) out.toggleMines = def.toggleMines.map(move);
   if (def.launchPads) out.launchPads = def.launchPads.map(([x, y, o]) => [...move([x, y]), o]);
+  if (def.oneWays) out.oneWays = def.oneWays.map(([x, y, o]) => [...move([x, y]), o]);
   return out;
 }
 
@@ -365,7 +368,7 @@ export function check(def: LevelDef): Check {
 }
 
 /** The order of a level's fields in levels.json. */
-const FIELD_ORDER = ['name', 'description', 'time', 'rows', 'spawn', 'facing', 'key', 'door', 'gold', 'toggleGold', 'mines', 'toggleMines', 'launchPads'];
+const FIELD_ORDER = ['name', 'description', 'time', 'rows', 'spawn', 'facing', 'key', 'door', 'gold', 'toggleGold', 'mines', 'toggleMines', 'launchPads', 'oneWays'];
 
 /**
  * The level as an entry for src/level/levels.json: name, description and

@@ -3,6 +3,7 @@ import { CircularSegment, LinearSegment } from '../physics/geometry';
 import { GOLD_RADIUS, GoldState, type Gold } from '../physics/gold';
 import { LAUNCH_PAD_DIRECTIONS, LAUNCH_PAD_RADIUS, type LaunchPad } from '../physics/launchPad';
 import { MineState, type Mine } from '../physics/mine';
+import { ONE_WAY_SEMI_SIDE, type OneWayPlatform } from '../physics/oneWay';
 import { GREASED_TILE, TILE_SIZE } from '../physics/tileDefs';
 import type { TileMap } from '../physics/tileMap';
 import type { Pose, P } from './animator';
@@ -224,6 +225,7 @@ export class Renderer {
     gold: readonly Gold[],
     mines: readonly Mine[],
     launchPads: readonly LaunchPad[],
+    oneWays: readonly OneWayPlatform[],
     exit: ExitView,
     sparkles: readonly Sparkle[],
     ninja: NinjaView | null,
@@ -292,6 +294,7 @@ export class Renderer {
     ctx.globalCompositeOperation = 'source-over';
 
     this.drawExit(ctx, exit, debugCircle !== null, now);
+    this.drawOneWays(ctx, oneWays);
     this.drawLaunchPads(ctx, launchPads, debugCircle !== null, now);
     this.drawGold(ctx, gold, debugCircle !== null, now);
     this.drawMines(ctx, mines, debugCircle !== null, now);
@@ -446,6 +449,60 @@ export class Renderer {
       }
       ctx.stroke();
     }
+  }
+
+  /**
+   * One-way platforms: a neon tube like the terrain's edges along the solid
+   * face, with a faint strip behind it and chevrons pointing the way the ninja
+   * can pass through.
+   */
+  private drawOneWays(ctx: CanvasRenderingContext2D, ways: readonly OneWayPlatform[]): void {
+    const w = ONE_WAY_SEMI_SIDE;
+    const strip = new Path2D();
+    const face = new Path2D();
+    const chevrons = new Path2D();
+    for (const p of ways) {
+      if (!this.onScreen(p.x, p.y, w + 4)) continue;
+      // A frame with the face along x and the side it faces (its normal) towards -y.
+      const m = new DOMMatrix().translateSelf(p.x, p.y).rotateSelf((Math.atan2(p.normalX, -p.normalY) * 180) / Math.PI);
+      const local = (path: Path2D, build: (q: Path2D) => void) => {
+        const q = new Path2D();
+        build(q);
+        path.addPath(q, m);
+      };
+      local(strip, (q) => q.rect(-w, 0, 2 * w, 4));
+      local(face, (q) => {
+        q.moveTo(-w, 0);
+        q.lineTo(w, 0);
+      });
+      local(chevrons, (q) => {
+        for (const cx of [-7, 0, 7]) {
+          q.moveTo(cx - 1.8, 3.4);
+          q.lineTo(cx, 1.4);
+          q.lineTo(cx + 1.8, 3.4);
+        }
+      });
+    }
+    ctx.fillStyle = 'rgba(37, 212, 255, 0.12)';
+    ctx.fill(strip);
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = COLORS.edge;
+    ctx.globalAlpha = 0.5;
+    ctx.lineWidth = 0.7;
+    ctx.stroke(chevrons);
+    ctx.globalCompositeOperation = 'lighter';
+    for (const [width, alpha] of [[8, 0.05], [3.2, 0.14], [1.6, 0.5]]) {
+      ctx.globalAlpha = alpha;
+      ctx.lineWidth = width;
+      ctx.stroke(face);
+    }
+    ctx.globalAlpha = 0.95;
+    ctx.strokeStyle = COLORS.edgeCore;
+    ctx.lineWidth = 0.6;
+    ctx.stroke(face);
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
   }
 
   /** Launch pads: a neon plate, with chevrons pointing the way it throws that light up in turn. */

@@ -73,6 +73,7 @@ describe('frame-exact physics vs nclone', () => {
           toggleMines: scenario.toggleMines as [number, number][],
           exit: scenario.exit ? { door: scenario.exit[0] as [number, number], key: scenario.exit[1] as [number, number] } : undefined,
           launchPads: 'launchPads' in scenario ? (scenario.launchPads as [number, number, number][]) : undefined,
+          oneWays: 'oneWays' in scenario ? (scenario.oneWays as [number, number, number][]) : undefined,
         }),
       );
       const gold = scenario.goldField ? [...level.gold, ...goldField()] : level.gold;

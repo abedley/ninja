@@ -119,6 +119,10 @@ describe('level editor operations', () => {
     // The clip spans 4 to 12 across: x becomes 16 - x.
     expect(h).toEqual({ rows: ['.#', '..'], objects: { spawn: [10, 7], facing: 'left', gold: [[5, 5]], launchPads: [[11, 10, 5], [8, 4, 2]] } });
     expect(flipClip(h, 'horizontal')).toEqual(clip);
+    // One-way platforms turn like launch pads: left and right swap one way, up and down the other.
+    const ways = { rows: ['..'], objects: { oneWays: [[6, 6, 0], [8, 6, 6]] as [number, number, number][] } };
+    expect(flipClip(ways, 'horizontal').objects.oneWays).toEqual([[10, 6, 4], [8, 6, 6]]);
+    expect(flipClip(ways, 'vertical').objects.oneWays).toEqual([[6, 6, 0], [8, 6, 2]]);
     const v = flipClip(clip, 'vertical');
     expect(v.objects).toEqual({ spawn: [6, 9], gold: [[11, 11]], launchPads: [[5, 6, 1], [8, 12, 6]] });
   });
@@ -139,6 +143,11 @@ describe('level editor operations', () => {
     expect(swapped.mines).toEqual([[13, 12], [9, 5]]);
     // Turning a launch pad.
     expect(placeObject(d, [15, 7], { kind: 'launchPads', orientation: 6 }).launchPads).toEqual([[15, 7, 6]]);
+    // One-way platforms, the same way.
+    const ways = placeObject(def, [12, 8], { kind: 'oneWays', orientation: 2 });
+    expect(ways.oneWays).toEqual([[12, 8, 2]]);
+    expect(placeObject(ways, [12, 8], { kind: 'oneWays', orientation: 6 }).oneWays).toEqual([[12, 8, 6]]);
+    expect(parseLevel(ways).oneWays).toEqual([{ x: 72, y: 48, orientation: 2 }]);
     // Points on the playable area's edges are fine; beyond them, nothing happens.
     expect(placeObject(def, [4, 4], { kind: 'gold' }).gold).toEqual([[4, 4]]);
     expect(placeObject(def, [3, 8], { kind: 'gold' })).toBe(def);

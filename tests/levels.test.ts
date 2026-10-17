@@ -41,6 +41,7 @@ describe('level parser', () => {
       key: [10, 6],
       door: [22, 6],
       launchPads: [[16, 8, 6]],
+      oneWays: [[20, 4, 6], [8, 8, 4]],
     });
     expect([level.spawnX, level.spawnY, level.facing]).toEqual([36, 36, -1]);
     expect(level.gold).toEqual([{ x: 54, y: 42 }, { x: 84, y: 36 }]);
@@ -49,6 +50,9 @@ describe('level parser', () => {
     expect(level.toggleGold).toEqual([{ x: 96, y: 24 }]);
     expect(level.exit).toEqual({ key: { x: 60, y: 36 }, door: { x: 132, y: 36 } });
     expect(level.launchPads).toEqual([{ x: 96, y: 48, orientation: 6 }]);
+    expect(level.oneWays).toEqual([{ x: 120, y: 24, orientation: 6 }, { x: 48, y: 48, orientation: 4 }]);
+    // N++'s one-ways face straight up, down, left or right.
+    expect(() => parseLevel({ name: 'x', rows: ['.'], spawn: [6, 6], oneWays: [[6, 6, 1]] })).toThrow(/one-way platform with direction 1/);
     expect(parseLevel({ name: 'x', rows: ['.'], spawn: [6, 6] }).facing).toBe(1);
   });
 });
@@ -134,6 +138,38 @@ describe('toggle gold', () => {
     sim.tick(0, false);
     sim.tick(0, false);
     expect(g.state).toBe(GoldState.Dormant);
+  });
+});
+
+describe('one-way platforms', () => {
+  // A corridor 5 tiles tall; the floor's top is at 6 px unit 24, and platforms all along it 2 tiles over the floor, at 16.
+  const rows = ['............', '............', '............', '............', '............', '############'];
+  const level = (direction: number) => parseLevel({ name: 'x', rows, spawn: [6, 22], oneWays: [6, 10, 14, 18, 22, 26, 30, 34, 38, 42, 46, 50].map((x): [number, number, number] => [x, 16, direction]) });
+  const play = (direction: number) => {
+    const l = level(direction);
+    const sim = new Simulator(l.map, l.spawnX, l.spawnY, l);
+    let highest = Infinity;
+    // Run right, with a full jump a little way in.
+    for (let i = 0; i < 150; i++) {
+      sim.tick(1, i >= 10 && i < 55);
+      highest = Math.min(highest, sim.ninja.ypos);
+    }
+    return { sim, highest };
+  };
+
+  it('facing up, are jumped up through and landed on', () => {
+    const { sim, highest } = play(6);
+    // Through the platforms (at 96 px), and standing on them: the ninja's centre one radius above.
+    expect(highest).toBeLessThan(96 - 10);
+    expect(sim.ninja.airborn).toBe(false);
+    expect(sim.ninja.ypos).toBeCloseTo(96 - 10, 5);
+  });
+
+  it('facing down, stop a jump from below', () => {
+    const { sim, highest } = play(2);
+    // The head bumps them: the ninja never gets its centre higher than a radius under them, and is back on the floor.
+    expect(highest).toBeGreaterThanOrEqual(96 + 10 - 1e-9);
+    expect(sim.ninja.ypos).toBeCloseTo(144 - 10, 5);
   });
 });
 

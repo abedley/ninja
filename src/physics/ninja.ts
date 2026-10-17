@@ -183,9 +183,36 @@ export class Ninja {
     }
   }
 
-  /** Determine airborne / walled state, floor and ceiling normals, and impact deaths. */
-  postCollision(): void {
-    let wallNormal = 0;
+  /**
+   * Pushed out of a one-way platform (nclone's collide_vs_objects, for type
+   * 11): moved along its normal, with the speed into it taken away, and
+   * counted as a floor or ceiling touch like a tile surface.
+   */
+  depenetrateOneWay(nx: number, ny: number, len: number): void {
+    this.xpos += nx * len;
+    this.ypos += ny * len;
+    const along = this.xspeed * ny - this.yspeed * nx;
+    this.xspeed = along * ny;
+    // (0 - nx) rather than -nx: +0 when nx is 0, as in the reference.
+    this.yspeed = along * (0 - nx);
+    if (ny >= -0.0001) {
+      this.ceilingCount++;
+      this.ceilingNormalX += nx;
+      this.ceilingNormalY += ny;
+    } else {
+      this.floorCount++;
+      this.floorNormalX += nx;
+      this.floorNormalY += ny;
+    }
+  }
+
+  /**
+   * Determine airborne / walled state, floor and ceiling normals, and impact
+   * deaths. `entityWallNormal` is a wall found among the entities first (the
+   * side of a one-way platform), which takes precedence over tile walls.
+   */
+  postCollision(entityWallNormal = 0): void {
+    let wallNormal = entityWallNormal;
     let wallX = 0;
     let wallY = 0;
     const rad = NINJA.RADIUS + 0.1;
@@ -211,7 +238,8 @@ export class Ninja {
       this.walled = true;
       this.wallNormal = wallNormal;
       // The wall's tile is just behind the contact point (the wall's normal points away from it).
-      this.wallGreased = this.map.isGreasedAt(wallX - 0.5 * wallNormal, wallY);
+      // (A one-way platform is never greased.)
+      this.wallGreased = !entityWallNormal && this.map.isGreasedAt(wallX - 0.5 * wallNormal, wallY);
     }
 
     if (this.floorCount > 0) {

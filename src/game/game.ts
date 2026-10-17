@@ -410,6 +410,7 @@ export class Game {
       this.sim.gold,
       this.sim.mines,
       this.sim.launchPads,
+      this.sim.oneWays,
       { door: this.sim.door, key: this.sim.key },
       this.sparkles,
       alive ? { x, y, tilt: this.animator.tilt, facing: this.animator.facing, pose, scarf: this.scarf } : null,

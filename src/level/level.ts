@@ -24,7 +24,7 @@ import { TileMap } from '../physics/tileMap';
  * A steep ramp spans two rows in one column: "k" above "o" rising, "l" above "p" falling.
  *
  * Everything else (the ninja's start, gold, toggle gold, mines, the key and
- * door, launch pads) is placed by coordinates, in N++'s 6 px entity units: 4 per tile,
+ * door, launch pads, one-way platforms) is placed by coordinates, in N++'s 6 px entity units: 4 per tile,
  * counted from the outer edge of the border, so a tile's centre is at 4n + 2
  * and its edges at multiples of 4.
  */
@@ -60,6 +60,12 @@ export interface LevelDef {
    * right, 1 down-right, 2 down, 3 down-left, 4 left, 5 up-left, 6 up, 7 up-right.
    */
   launchPads?: [number, number, number][];
+  /**
+   * One-way platforms, as [x, y, direction]: a surface a tile wide, centred on
+   * the point, solid only from the side it faces (0 right, 2 down, 4 left, 6
+   * up). Facing up, the ninja jumps up through it and lands on it.
+   */
+  oneWays?: [number, number, number][];
 }
 
 /** Seconds on the clock for a new level, and what a level's score counts down from. */
@@ -78,6 +84,7 @@ export interface Level {
   toggleMines: Point[];
   toggleGold: Point[];
   launchPads: LaunchPadPlacement[];
+  oneWays: LaunchPadPlacement[];
   exit?: { door: Point; key: Point };
   /** Seconds on the clock at the start, if the level is timed. */
   time?: number;
@@ -123,6 +130,13 @@ export function parseLevel(def: LevelDef): Level {
     }
     launchPads.push({ ...point([px, py]), orientation });
   }
+  const oneWays: LaunchPadPlacement[] = [];
+  for (const [px, py, orientation] of def.oneWays ?? []) {
+    if (!(orientation === 0 || orientation === 2 || orientation === 4 || orientation === 6)) {
+      throw new Error(`Level "${def.name}" has a one-way platform with direction ${orientation} (it must be 0, 2, 4 or 6)`);
+    }
+    oneWays.push({ ...point([px, py]), orientation });
+  }
   const spawn = point(def.spawn);
   return {
     name: def.name,
@@ -136,6 +150,7 @@ export function parseLevel(def: LevelDef): Level {
     toggleMines: (def.toggleMines ?? []).map(point),
     toggleGold: (def.toggleGold ?? []).map(point),
     launchPads,
+    oneWays,
     exit: def.key && def.door ? { door: point(def.door), key: point(def.key) } : undefined,
     time: def.time,
   };

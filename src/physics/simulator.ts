@@ -3,6 +3,7 @@ import { Gold, GoldState } from './gold';
 import { LaunchPad } from './launchPad';
 import { Mine } from './mine';
 import { Ninja, NinjaState, type HorInput } from './ninja';
+import { OneWayPlatform } from './oneWay';
 import { TILE_SIZE } from './tileDefs';
 import { TileMap } from './tileMap';
 
@@ -28,13 +29,15 @@ export interface Entities {
   exit?: { door: Point; key: Point };
   /** Launch pads, each facing one of N++'s 8 orientations (0 right, then clockwise). */
   launchPads?: readonly LaunchPadPlacement[];
+  /** One-way platforms, each facing 0 (right), 2 (down), 4 (left) or 6 (up): solid only from that side. */
+  oneWays?: readonly LaunchPadPlacement[];
 }
 
 export interface LaunchPadPlacement extends Point {
   orientation: number;
 }
 
-type Touchable = Gold | Mine | LaunchPad | ExitKey | ExitDoor;
+type Touchable = Gold | Mine | LaunchPad | OneWayPlatform | ExitKey | ExitDoor;
 
 export class Simulator {
   readonly map: TileMap;
@@ -52,6 +55,7 @@ export class Simulator {
   readonly launchPads: LaunchPad[];
   /** Launch pads that threw the ninja during the most recent tick. */
   readonly launchesThisTick: LaunchPad[] = [];
+  readonly oneWays: OneWayPlatform[];
   readonly door: ExitDoor | null;
   readonly key: ExitKey | null;
   /** True once the ninja has reached the open door. */
@@ -67,6 +71,8 @@ export class Simulator {
   private readonly touchables: Touchable[];
   /** Each touchable's grid cell, as [x, y]. */
   private readonly cells: [number, number][];
+  /** The one-way platforms in touch order, with their cells (they're collided with physically, in every pass). */
+  private readonly solids: { e: OneWayPlatform; cell: [number, number] }[];
 
   constructor(map: TileMap, spawnX: number, spawnY: number, entities: Entities = {}) {
     this.map = map;
@@ -77,6 +83,7 @@ export class Simulator {
       ...(entities.toggleMines ?? []).map((m) => new Mine(m.x, m.y, true)),
     ];
     this.launchPads = (entities.launchPads ?? []).map((p) => new LaunchPad(p.x, p.y, p.orientation));
+    this.oneWays = (entities.oneWays ?? []).map((p) => new OneWayPlatform(p.x, p.y, p.orientation));
     const exit = entities.exit;
     this.door = exit ? new ExitDoor(exit.door.x, exit.door.y) : null;
     this.key = exit ? new ExitKey(exit.key.x, exit.key.y) : null;
@@ -84,10 +91,12 @@ export class Simulator {
       ...this.gold,
       ...this.mines,
       ...this.launchPads,
+      ...this.oneWays,
       ...(this.key ? [this.key] : []),
       ...(this.door ? [this.door] : []),
     ]);
     this.cells = this.touchables.map((e) => cellOf(e.x, e.y));
+    this.solids = this.touchables.flatMap((e, i) => (e instanceof OneWayPlatform ? [{ e, cell: this.cells[i] }] : []));
   }
 
   /** Advance the simulation by exactly one frame. */
@@ -107,16 +116,33 @@ export class Simulator {
 
     ninja.integrate();
     ninja.preCollision();
-    // N++ runs four collision passes per frame (entities would go in between).
-    for (let i = 0; i < 4; i++) ninja.collideVsTiles();
+    // N++ runs four collision passes per frame: solid entities, then tiles.
+    for (let i = 0; i < 4; i++) {
+      if (this.solids.length) this.collideVsObjects();
+      ninja.collideVsTiles();
+    }
     // Logical (non-physical) entity collisions open N++'s post-collision step.
-    this.logicalCollisions();
+    const wallNormal = this.logicalCollisions();
     this.runClock();
-    ninja.postCollision();
+    ninja.postCollision(wallNormal);
     ninja.think();
   }
 
-  private logicalCollisions(): void {
+  /** Push the ninja out of the one-way platforms in the 3x3 cells around it (N++'s physical entity collisions). */
+  private collideVsObjects(): void {
+    const n = this.ninja;
+    const [cx, cy] = cellOf(n.xpos, n.ypos);
+    // (Gathered before any push moves the ninja.)
+    const near = this.solids.filter(({ cell: [ex, ey] }) => Math.abs(ex - cx) <= 1 && Math.abs(ey - cy) <= 1);
+    for (const { e } of near) {
+      const d = e.depenetration(n);
+      if (d) n.depenetrateOneWay(d.nx, d.ny, d.len);
+    }
+  }
+
+  /** Returns the first wall normal found among the entities (a one-way platform's side), or 0. */
+  private logicalCollisions(): number {
+    let wallNormal = 0;
     const n = this.ninja;
     // N++ gathers the entities to test before testing them, so a door opened
     // by the key this frame can't be entered until the next one.
@@ -138,12 +164,15 @@ export class Simulator {
         if (e.logicalCollision(n)) this.killedBy ??= e;
       } else if (e instanceof LaunchPad) {
         if (e.logicalCollision(n)) this.launchesThisTick.push(e);
+      } else if (e instanceof OneWayPlatform) {
+        wallNormal ||= e.wallNormal(n);
       } else if (e instanceof ExitKey) {
         if (e.active && e.logicalCollision(n)) this.door!.open = true;
       } else if (doorOpen && e.logicalCollision(n)) {
         this.won = true;
       }
     }
+    return wallNormal;
   }
 
   /** Not part of N++'s physics (it has no per-level clock), so it can't affect anything above. */
