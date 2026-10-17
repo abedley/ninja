@@ -71,8 +71,9 @@ With the physics overlay on, alt-clicking drops the ninja at that spot.
 There are sound effects but no music. They're synthesised as they play with
 the Web Audio API (`src/game/sound.ts`), so there are no sound files:
 footsteps, jumps and wall jumps, landings and wall hits (louder the harder
-they are), a hiss while sliding down a wall or skidding, gold (rising in
-pitch when picked up in quick succession), toggle gold waking, the key, launch
+they are), a hiss while sliding down a wall or skidding, gold (in a row, each
+piece within 2 s of the last, about a full jump, it climbs a scale, with a
+sparkle on top and a flourish every fifth piece), toggle gold waking, the key, launch
 pads, toggle mines arming, the exit, and each way to die (a mine, a hard
 landing, the clock). `Game.playSounds()` in `src/game/game.ts` works out
 which to play by comparing the ninja and the objects before and after each

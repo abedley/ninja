@@ -17,9 +17,9 @@ export class Sound {
   private master: GainNode | null = null;
   private noiseBuffer: AudioBuffer | null = null;
   private slide: { gain: GainNode; filter: BiquadFilterNode } | null = null;
-  /** Gold picked up in quick succession goes up the scale. */
+  /** Gold picked up in a row (each within GOLD_STREAK_FRAMES of the last): 0 for the first. */
   private goldStreak = 0;
-  private lastGoldAt = -Infinity;
+  private lastGoldFrame = -Infinity;
   /** Which foot stepped last. */
   private foot = 0;
   private _enabled: boolean;
@@ -134,14 +134,33 @@ export class Sound {
 
   // ------------------------------------------------------------ objects
 
-  gold(): void {
-    if (!this.ctx) return;
-    const now = this.ctx.currentTime;
-    this.goldStreak = now - this.lastGoldAt < 0.7 ? Math.min(this.goldStreak + 1, 12) : 0;
-    this.lastGoldAt = now;
-    const k = 2 ** (this.goldStreak / 12);
+  /**
+   * A piece of gold, picked up on game frame `frame`. On its own it's a
+   * two-note chime. Gold in a row (each piece within GOLD_STREAK_FRAMES of the
+   * last, about a full jump) climbs a pentatonic scale, with a sparkle on top
+   * that grows brighter, and every fifth in a row adds a little flourish.
+   */
+  gold(frame: number): void {
+    const gap = frame - this.lastGoldFrame;
+    // (Frames count from 0 again after a respawn, so a negative gap is a fresh start.)
+    this.goldStreak = gap >= 0 && gap <= GOLD_STREAK_FRAMES ? this.goldStreak + 1 : 0;
+    this.lastGoldFrame = frame;
+    const n = this.goldStreak;
+    const k = 2 ** (GOLD_SCALE[Math.min(n, GOLD_SCALE.length - 1)] / 12);
     this.tone({ type: 'square', from: 1319 * k, dur: 0.05, gain: 0.05 });
-    this.tone({ type: 'square', from: 1760 * k, dur: 0.12, gain: 0.05, delay: 0.05 });
+    this.tone({ type: 'square', from: 1760 * k, dur: n ? 0.16 : 0.12, gain: 0.05, delay: 0.05 });
+    if (n === 0) return;
+    // In a row: a fifth above, ringing on, louder the longer the run.
+    this.tone({ type: 'triangle', from: 2637 * k, dur: 0.22, gain: 0.03 + 0.005 * Math.min(n, 6), delay: 0.09 });
+    if (n % 5 === 4) {
+      [2093, 2637, 3136, 4186].forEach((f, i) => this.tone({ type: 'triangle', from: f, dur: 0.1, gain: 0.05, delay: 0.16 + i * 0.045 }));
+    }
+  }
+
+  /** Forget a run of gold (a new life or level starts one afresh). */
+  resetGoldStreak(): void {
+    this.goldStreak = 0;
+    this.lastGoldFrame = -Infinity;
   }
 
   /** Toggle gold waking as the ninja touches it, and ready once it's gone by. */
@@ -232,5 +251,10 @@ export class Sound {
     return env;
   }
 }
+
+/** How long after one piece of gold the next still counts as in a row: 2 s, a little more than a full jump (about 112 frames). */
+export const GOLD_STREAK_FRAMES = 120;
+/** Semitones up the major pentatonic scale for each piece in a row (staying at the top after an octave). */
+const GOLD_SCALE = [0, 2, 4, 7, 9, 12];
 
 const clamp01 = (v: number) => Math.min(1, Math.max(0, v));

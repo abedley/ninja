@@ -132,6 +132,7 @@ export class Game {
 
   private respawnAt(x: number, y: number): void {
     this.sim = new Simulator(this.level.map, x, y, this.level);
+    this.sound?.resetGoldStreak();
     this.runner = new AutoRunner(this.sim.ninja, this.level.facing);
     this.phase = Phase.Ready;
     this.sparkles = [];
@@ -220,7 +221,7 @@ export class Game {
     this.stepScarf();
     const label = this.timed ? `+${GOLD_TIME_BONUS / TICK_RATE}` : undefined;
     for (const g of this.sim.goldThisTick) this.sparkles.push({ x: g.x, y: g.y, age: 0, kind: 'gold', label });
-    for (const _ of this.sim.goldThisTick) this.sound?.gold();
+    for (const _ of this.sim.goldThisTick) this.sound?.gold(this.sim.frame);
     if (key && keyWasThere && !key.active) {
       this.sparkles.push({ x: key.x, y: key.y, age: 0, kind: 'key' });
       this.sound?.key();
