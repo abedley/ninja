@@ -12,6 +12,7 @@ export class Input {
 
   onRestart: (() => void) | null = null;
   onToggleDebug: (() => void) | null = null;
+  onToggleSound: (() => void) | null = null;
   onMenu: (() => void) | null = null;
   /** Off while a menu is open: nothing counts as a jump, and keys work as usual on the page. */
   enabled = true;
@@ -59,6 +60,8 @@ export class Input {
       this.onRestart?.();
     } else if (code === 'Backquote' && !e.repeat) {
       this.onToggleDebug?.();
+    } else if (code === 'KeyM' && !e.repeat) {
+      this.onToggleSound?.();
     } else {
       return;
     }

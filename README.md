@@ -62,8 +62,24 @@ Hold the phone upright.
 | Restart the level | ↺ button | R |
 | Pause, main menu | ⌂ button | Esc |
 | Physics overlay | ⓘ button | `` ` `` (backtick) |
+| Sound effects on / off | Speaker button | M |
 
 With the physics overlay on, alt-clicking drops the ninja at that spot.
+
+### Sound
+
+There are sound effects but no music. They're synthesised as they play with
+the Web Audio API (`src/game/sound.ts`), so there are no sound files:
+footsteps, jumps and wall jumps, landings and wall hits (louder the harder
+they are), a hiss while sliding down a wall or skidding, gold (rising in
+pitch when picked up in quick succession), toggle gold waking, the key, launch
+pads, toggle mines arming, the exit, and each way to die (a mine, a hard
+landing, the clock). `Game.playSounds()` in `src/game/game.ts` works out
+which to play by comparing the ninja and the objects before and after each
+frame. Browsers only start audio after a tap or key press, so the game is
+silent until the first one. The speaker button (or M) turns the sound off,
+and the choice is remembered. On an iPhone, the ring/silent switch also
+silences web audio.
 
 The camera follows the ninja, leading a little in the running direction and
 upwards. Zoom is set by `VIEW_MIN_W` / `VIEW_MIN_H` in `src/game/renderer.ts`

@@ -5,6 +5,7 @@ import { Input } from './game/input';
 import { Menu } from './game/menu';
 import { browserStore, levelScore, Records, RUNS_KEPT, type LevelRecord } from './game/records';
 import { Renderer } from './game/renderer';
+import { Sound } from './game/sound';
 import { CAMPAIGNS, type Campaign } from './level/campaigns';
 import { parseLevel, type LevelDef } from './level/level';
 import { LEVELS } from './level/levels';
@@ -19,6 +20,7 @@ const btnRestart = document.getElementById('btn-restart')!;
 const btnDebug = document.getElementById('btn-debug')!;
 const btnFullscreen = document.getElementById('btn-fullscreen')!;
 const btnMenu = document.getElementById('btn-menu')!;
+const btnSound = document.getElementById('btn-sound')!;
 const goldCounter = document.getElementById('gold-counter')!;
 const goldCount = document.getElementById('gold-count')!;
 const keyIndicator = document.getElementById('key-indicator')!;
@@ -60,6 +62,20 @@ const renderer = new Renderer(canvas);
 const input = new Input(app);
 // Behind the menu, the first level waits.
 const game = single ? new Game(renderer, input, single) : new Game(renderer, input, CAMPAIGNS[0].levels[0], CAMPAIGNS[0].time * TICK_RATE);
+// Sound effects. Browsers only allow audio to start from a tap or key press, so every one tries.
+const sound = new Sound();
+game.sound = sound;
+for (const type of ['pointerdown', 'touchend', 'keydown']) window.addEventListener(type, () => sound.unlock(), { capture: true, passive: true });
+function syncSoundButton(): void {
+  btnSound.setAttribute('aria-pressed', String(sound.enabled));
+  btnSound.setAttribute('aria-label', sound.enabled ? 'Sound effects on' : 'Sound effects off');
+}
+function toggleSound(): void {
+  sound.enabled = !sound.enabled;
+  syncSoundButton();
+}
+syncSoundButton();
+btnSound.addEventListener('click', toggleSound);
 const menu = new Menu(document.getElementById('menu')!, CAMPAIGNS, records);
 
 function resize(): void {
@@ -71,6 +87,7 @@ function resize(): void {
 
 input.onRestart = restartLevel;
 input.onToggleDebug = toggleDebug;
+input.onToggleSound = () => toggleSound();
 input.onMenu = () => (menu.isOpen ? menu.back() : openMenu());
 
 function toggleDebug(): void {
@@ -83,7 +100,7 @@ function ownTaps(el: HTMLElement): void {
   el.addEventListener('pointerdown', (e) => e.stopPropagation());
   el.addEventListener('touchstart', (e) => e.stopPropagation(), { passive: true });
 }
-for (const btn of [btnMenu, btnRestart, btnDebug, btnFullscreen, btnEdit]) ownTaps(btn);
+for (const btn of [btnMenu, btnRestart, btnDebug, btnSound, btnFullscreen, btnEdit]) ownTaps(btn);
 
 /** Back to the start of the current level (or, once the campaign is finished, a new run). */
 function restartLevel(): void {

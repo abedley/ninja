@@ -1,4 +1,6 @@
 import { parseLevel, type Level, type LevelDef } from '../level/level';
+import { GoldState } from '../physics/gold';
+import { MineState } from '../physics/mine';
 import { NINJA, NinjaState } from '../physics/ninja';
 import { GOLD_TIME_BONUS, Simulator, TICK_RATE } from '../physics/simulator';
 import { AnimState, NinjaAnimator, type P, type Pose } from './animator';
@@ -6,6 +8,7 @@ import { AutoRunner } from './autoRunner';
 import { Debris } from './debris';
 import type { Input } from './input';
 import { poseToWorld, type Camera, type Renderer } from './renderer';
+import type { Sound } from './sound';
 import { sparkleLife, type Sparkle } from './sparkles';
 
 const STEP_MS = 1000 / TICK_RATE;
@@ -33,6 +36,23 @@ export const enum Phase {
   Dead,
   /** Reached the open exit door. */
   Won,
+}
+
+/** Points in the run cycle (0-432) where a foot comes down. */
+const FOOTFALLS = [108, 324];
+
+/** What sounds are worked out from: the ninja and the objects before a tick, to compare with after it. */
+interface SoundSnapshot {
+  state: NinjaState;
+  airborn: boolean;
+  walled: boolean;
+  wallJumps: number;
+  jumpDuration: number;
+  xspeed: number;
+  yspeed: number;
+  runCycle: number;
+  mines: MineState[];
+  gold: GoldState[];
 }
 
 const STATE_NAMES = ['Immobile', 'Running', 'Sliding', 'Jumping', 'Falling', 'WallSliding', 'Dead', 'Dying', 'Celebrating', 'Disabled'];
@@ -69,6 +89,8 @@ export class Game {
   private lastTime = -1;
   private running = false;
   debug = false;
+  /** Sound effects (none if null). */
+  sound: Sound | null = null;
   /**
    * Called by a tap once the exit has been reached (instead of playing the
    * level again), e.g. to move on to the next level.
@@ -133,6 +155,7 @@ export class Game {
 
   stop(): void {
     this.running = false;
+    this.sound?.setSlide(0);
   }
 
   private frame = (now: number): void => {
@@ -183,6 +206,7 @@ export class Game {
     this.prevY = ninja.ypos;
     const key = this.sim.key;
     const keyWasThere = key?.active;
+    const before = this.sound ? this.soundSnapshot() : null;
     if (this.phase === Phase.Playing) {
       this.sim.tick(...this.runner.control(ninja, jump));
       this.runner.update(ninja);
@@ -196,26 +220,88 @@ export class Game {
     this.stepScarf();
     const label = this.timed ? `+${GOLD_TIME_BONUS / TICK_RATE}` : undefined;
     for (const g of this.sim.goldThisTick) this.sparkles.push({ x: g.x, y: g.y, age: 0, kind: 'gold', label });
-    if (key && keyWasThere && !key.active) this.sparkles.push({ x: key.x, y: key.y, age: 0, kind: 'key' });
+    for (const _ of this.sim.goldThisTick) this.sound?.gold();
+    if (key && keyWasThere && !key.active) {
+      this.sparkles.push({ x: key.x, y: key.y, age: 0, kind: 'key' });
+      this.sound?.key();
+    }
     for (const pad of this.sim.launchesThisTick) {
       // (A pad can fire on a few frames in a row: one burst is enough.)
       if (this.sparkles.some((s) => s.kind === 'launch' && s.x === pad.x && s.y === pad.y && s.age < 8)) continue;
       this.sparkles.push({ x: pad.x, y: pad.y, age: 0, kind: 'launch', dir: [pad.normalX, pad.normalY] });
+      this.sound?.launch();
     }
+    if (before) this.playSounds(before);
 
     if (this.phase === Phase.Playing && this.sim.won) {
       this.phase = Phase.Won;
       this.clearedIn = this.sim.frame - this.startFrame;
       const door = this.sim.door!;
       this.sparkles.push({ x: door.x, y: door.y, age: 0, kind: 'exit' });
+      this.sound?.win();
     }
     // (Re-read the state: tick() may have changed it.)
     if (this.isDead) {
       this.phase = Phase.Dead;
       const mine = this.sim.killedBy;
       if (mine) this.sparkles.push({ x: mine.x, y: mine.y, age: 0, kind: 'blast' });
+      if (mine) this.sound?.explosion();
+      else if (this.sim.timedOut) this.sound?.timeUp();
+      else this.sound?.splat();
       this.explode();
     }
+  }
+
+  private soundSnapshot(): SoundSnapshot {
+    const n = this.sim.ninja;
+    return {
+      state: n.state,
+      airborn: n.airborn,
+      walled: n.walled,
+      wallJumps: n.wallJumps,
+      jumpDuration: n.jumpDuration,
+      xspeed: n.xspeed,
+      yspeed: n.yspeed,
+      runCycle: this.animator.runCycle,
+      mines: this.sim.mines.map((m) => m.state),
+      gold: this.sim.gold.map((g) => g.state),
+    };
+  }
+
+  /** The ninja's sounds (jumps, landings, walls, footsteps, slides) and the toggle objects', from what changed in a tick. */
+  private playSounds(b: SoundSnapshot): void {
+    const sound = this.sound!;
+    const n = this.sim.ninja;
+    if (this.phase !== Phase.Playing || !n.alive) {
+      sound.setSlide(0);
+      return;
+    }
+    // A jump starts the Jumping state, or restarts it (its duration goes back to 0).
+    if (n.state === NinjaState.Jumping && (b.state !== NinjaState.Jumping || n.jumpDuration < b.jumpDuration)) {
+      if (n.wallJumps > b.wallJumps) sound.wallJump();
+      else sound.jump();
+    }
+    // (Landing and jumping again on the same frame makes both sounds.)
+    if (b.airborn && !n.airborn && b.yspeed > 1.2) sound.land((b.yspeed - 1.2) / (NINJA.MAX_SURVIVABLE_IMPACT - 1.2));
+    if (!b.walled && n.walled && Math.abs(b.xspeed) > 0.8) sound.wallHit(Math.abs(b.xspeed) / NINJA.MAX_HOR_SPEED);
+    if (n.state === NinjaState.Running && !n.airborn && b.state === NinjaState.Running) {
+      const [from, to] = [b.runCycle, this.animator.runCycle];
+      const crossed = (m: number) => (to >= from ? from < m && m <= to : m > from || m <= to);
+      if (from !== to && FOOTFALLS.some(crossed)) sound.footstep();
+    }
+    if (n.state === NinjaState.WallSliding) sound.setSlide(Math.max(0, n.yspeed) / 2.5, 'wall');
+    else if (n.state === NinjaState.GroundSliding && !n.airborn) sound.setSlide(Math.abs(n.xspeed) / NINJA.MAX_HOR_SPEED, 'floor');
+    else sound.setSlide(0);
+    this.sim.mines.forEach((m, i) => {
+      if (m.state === b.mines[i]) return;
+      if (m.state === MineState.Arming) sound.mine(false);
+      else if (m.state === MineState.Armed) sound.mine(true);
+    });
+    this.sim.gold.forEach((g, i) => {
+      if (g.state === b.gold[i] || !g.active) return;
+      if (g.state === GoldState.Waking) sound.goldWake(false);
+      else if (g.state === GoldState.Ready) sound.goldWake(true);
+    });
   }
 
   /** Start running (from the spawn point, respawning first after a death). */

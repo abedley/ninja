@@ -90,6 +90,20 @@ body {
   stroke-linejoin: round;
 }
 
+/* Sound on or off: the speaker with waves, or crossed out (and never highlighted as pressed). */
+#btn-sound[aria-pressed='true'] {
+  background: var(--control-bg);
+}
+
+#btn-sound[aria-pressed='true'] .sound-off,
+#btn-sound[aria-pressed='false'] .sound-on {
+  display: none;
+}
+
+#btn-sound[aria-pressed='false'] {
+  opacity: 0.7;
+}
+
 /* The key and the gold collected, top right. */
 #stats {
   position: absolute;
